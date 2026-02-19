@@ -1,0 +1,19 @@
+## Interface: 120001
+## Title: TommyTwoquests
+## Notes: A modern, elegant replacement quest tracker with filtering, icons, and full configurability.
+## Author: TommyTwoquests
+## Version: 1.0.0
+## SavedVariables: TommyTwoquestsDB
+## IconTexture: Interface\Icons\INV_Misc_Book_09
+## DefaultState: enabled
+
+Utils.lua
+Config.lua
+Core.lua
+QuestData.lua
+Filters.lua
+ObjectiveItem.lua
+QuestItem.lua
+MythicPlus.lua
+QuestTracker.lua
+Settings.lua
