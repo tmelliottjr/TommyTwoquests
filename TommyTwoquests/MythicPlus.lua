@@ -58,24 +58,37 @@ MP.Colors                                                                       
 -- Content indent from left edge (matches layout indent in UpdateMythicPlusDisplay)
 local INDENT                                                                          = 0
 
--- Manual start-time tracking (fallback when GetWorldElapsedTime is unreliable)
-local mpStartTime                                                                     = nil   -- GetTime() when the key started
-local mpCachedTimerID                                                                 = nil   -- cached world-elapsed-timer ID for this run
-local mpRunCompleted                                                                  = false -- true after CHALLENGE_MODE_COMPLETED until player leaves instance
-local mpCompletionTime                                                                = nil   -- elapsed time when the run completed
+-- Consolidated M+ run state (single table for easy reset)
+local mpState                                                                         = {
+  startTime       = nil,   -- GetTime() when the key started
+  cachedTimerID   = nil,   -- cached world-elapsed-timer ID for this run
+  runCompleted    = false, -- true after CHALLENGE_MODE_COMPLETED until player leaves instance
+  completionTime  = nil,   -- elapsed time when the run completed
+  completedOnTime = nil,   -- boolean from CompletionInfo API
+  cachedData      = nil,   -- last-known M+ data snapshot for post-completion display
+  deathLog        = {},    -- individual player deaths: { name, class, elapsed }
+  lastDeathCount  = 0,     -- track previous count to detect new deaths
+}
 
--- Death log: tracks individual player deaths during the M+ run
--- Each entry: { name, class, timestamp (elapsed seconds), penalty }
-local mpDeathLog                                                                      = {}
-local mpLastDeathCount                                                                = 0 -- track previous count to detect new deaths
-local DEATH_PENALTY_PER                                                               = 5 -- seconds per death
+local function ResetMPState()
+  mpState.startTime       = nil
+  mpState.cachedTimerID   = nil
+  mpState.runCompleted    = false
+  mpState.completionTime  = nil
+  mpState.completedOnTime = nil
+  mpState.cachedData      = nil
+  wipe(mpState.deathLog)
+  mpState.lastDeathCount = 0
+end
+
+local DEATH_PENALTY_PER = 5 -- seconds per death
 
 ----------------------------------------------------------------------
 -- Detection: is the player in an active Mythic+ run?
 ----------------------------------------------------------------------
 function TTQ:IsMythicPlusActive()
   -- Still show M+ display after completion until player leaves the instance
-  if mpRunCompleted then return true end
+  if mpState.runCompleted then return true end
   -- Use GetInstanceInfo difficulty check (more reliable than IsChallengeModeActive
   -- which returns false after completion)
   local _, instanceType, difficultyID = GetInstanceInfo()
@@ -125,11 +138,11 @@ function TTQ:GetMythicPlusData()
     local name, _, timeLimit = C_ChallengeMode.GetMapUIInfo(mapID)
     data.dungeonName = name or "Mythic+"
     data.timeLimit = timeLimit or 0
-  elseif mpCachedData then
+  elseif mpState.cachedData then
     -- API returns nil after completion — use cached values
-    data.mapID = mpCachedData.mapID
-    data.dungeonName = mpCachedData.dungeonName
-    data.timeLimit = mpCachedData.timeLimit
+    data.mapID = mpState.cachedData.mapID
+    data.dungeonName = mpState.cachedData.dungeonName
+    data.timeLimit = mpState.cachedData.timeLimit
   end
 
   -- Keystone level and affixes
@@ -161,18 +174,18 @@ function TTQ:GetMythicPlusData()
 
   -- Fallback: if keystone/affix APIs returned nothing (e.g. after completion),
   -- use the last cached values so the display doesn't go blank.
-  if (data.keystoneLevel == 0 or #data.affixes == 0) and mpCachedData then
-    if data.keystoneLevel == 0 then data.keystoneLevel = mpCachedData.keystoneLevel end
-    if #data.affixes == 0 then data.affixes = mpCachedData.affixes end
+  if (data.keystoneLevel == 0 or #data.affixes == 0) and mpState.cachedData then
+    if data.keystoneLevel == 0 then data.keystoneLevel = mpState.cachedData.keystoneLevel end
+    if #data.affixes == 0 then data.affixes = mpState.cachedData.affixes end
   end
 
   -- Carry completion flags into data
-  data.runCompleted = mpRunCompleted
-  data.completedOnTime = mpCompletedOnTime
+  data.runCompleted = mpState.runCompleted
+  data.completedOnTime = mpState.completedOnTime
 
   -- Timer: if run is completed, use frozen completion time
-  if mpRunCompleted and mpCompletionTime then
-    data.elapsed = mpCompletionTime
+  if mpState.runCompleted and mpState.completionTime then
+    data.elapsed = mpState.completionTime
   else
     -- Use GetWorldElapsedTime(1) directly (same as WarpDeplete)
     local timerFound = false
@@ -186,34 +199,34 @@ function TTQ:GetMythicPlusData()
     end
 
     -- Strategy 2: Manual fallback using captured start time
-    if not timerFound and mpStartTime then
-      data.elapsed = GetTime() - mpStartTime
+    if not timerFound and mpState.startTime then
+      data.elapsed = GetTime() - mpState.startTime
       timerFound = true
     end
 
-    -- If Strategy 1 found a time, back-calculate mpStartTime so it survives
-    -- for the manual fallback (important after /reload when mpStartTime is nil)
-    if timerFound and data.elapsed > 0 and not mpStartTime then
-      mpStartTime = GetTime() - data.elapsed
+    -- If Strategy 1 found a time, back-calculate mpState.startTime so it survives
+    -- for the manual fallback (important after /reload when mpState.startTime is nil)
+    if timerFound and data.elapsed > 0 and not mpState.startTime then
+      mpState.startTime = GetTime() - data.elapsed
     end
 
     -- If no timer source is available yet (countdown phase), show 0
     if not timerFound then
       data.elapsed = 0
     end
-  end -- close the else from "if mpRunCompleted"
+  end -- close the else from "if mpState.runCompleted"
 
   data.remaining = data.timeLimit - data.elapsed
   -- Use the authoritative completedOnTime flag when available;
   -- fall back to elapsed vs timeLimit comparison otherwise.
-  if mpRunCompleted and mpCompletedOnTime ~= nil then
-    data.isOverTime = not mpCompletedOnTime
+  if mpState.runCompleted and mpState.completedOnTime ~= nil then
+    data.isOverTime = not mpState.completedOnTime
   else
     data.isOverTime = data.remaining < 0
   end
 
   -- Determine which chest tier was earned on completion
-  if mpRunCompleted and not data.isOverTime then
+  if mpState.runCompleted and not data.isOverTime then
     for i = 1, #MP.CHEST_THRESHOLDS do
       local limit = data.timeLimit * MP.CHEST_THRESHOLDS[i]
       if data.elapsed <= limit then
@@ -334,16 +347,16 @@ function TTQ:GetMythicPlusData()
   -- Fallback: if scenario APIs returned no boss/forces data (e.g. after
   -- completion), restore from the last cached snapshot so the display
   -- doesn't go blank.
-  if mpCachedData and #data.bosses == 0 and data.enemyTotal == 0 then
-    data.bosses = mpCachedData.bosses
-    data.bossesKilled = mpCachedData.bossesKilled
-    data.bossesTotal = mpCachedData.bossesTotal
-    data.enemyForces = mpCachedData.enemyForces
-    data.enemyTotal = mpCachedData.enemyTotal
-    data.enemyPct = mpCachedData.enemyPct
-    data.enemyComplete = mpCachedData.enemyComplete
+  if mpState.cachedData and #data.bosses == 0 and data.enemyTotal == 0 then
+    data.bosses = mpState.cachedData.bosses
+    data.bossesKilled = mpState.cachedData.bossesKilled
+    data.bossesTotal = mpState.cachedData.bossesTotal
+    data.enemyForces = mpState.cachedData.enemyForces
+    data.enemyTotal = mpState.cachedData.enemyTotal
+    data.enemyPct = mpState.cachedData.enemyPct
+    data.enemyComplete = mpState.cachedData.enemyComplete
     -- On completion, mark all bosses as completed and forces at 100%
-    if mpRunCompleted then
+    if mpState.runCompleted then
       for _, boss in ipairs(data.bosses) do
         boss.completed = true
       end
@@ -359,7 +372,7 @@ function TTQ:GetMythicPlusData()
   -- Cache this data snapshot for use after completion (only when we
   -- have meaningful content — skip caching empty/fallback-only tables).
   if data.dungeonName ~= "" and (data.bossesTotal > 0 or data.enemyTotal > 0) then
-    mpCachedData = data
+    mpState.cachedData = data
   end
 
   return data
@@ -628,11 +641,11 @@ local function CreateMPDisplay(parent, width)
   deathHitbox:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(deathRow, "ANCHOR_BOTTOMLEFT")
     GameTooltip:SetText("Death Log", 0.90, 0.30, 0.30)
-    if #mpDeathLog > 0 then
+    if #mpState.deathLog > 0 then
       -- Aggregate deaths per player: { name, class, count, totalPenalty }
       local byPlayer = {} -- name -> { class, count }
       local order = {}    -- insertion-order of names
-      for _, entry in ipairs(mpDeathLog) do
+      for _, entry in ipairs(mpState.deathLog) do
         if not byPlayer[entry.name] then
           byPlayer[entry.name] = { class = entry.class, count = 0 }
           order[#order + 1] = entry.name
@@ -651,11 +664,12 @@ local function CreateMPDisplay(parent, width)
         GameTooltip:AddLine(line, cr, cg, cb)
       end
       -- Total summary
-      local totalPenalty = #mpDeathLog * DEATH_PENALTY_PER
+      local totalPenalty = #mpState.deathLog * DEATH_PENALTY_PER
       GameTooltip:AddLine(" ")
       GameTooltip:AddLine(
-        #mpDeathLog ..
-        " total " .. (#mpDeathLog == 1 and "death" or "deaths") .. "  |  +" .. FormatTime(totalPenalty) .. " penalty",
+        #mpState.deathLog ..
+        " total " ..
+        (#mpState.deathLog == 1 and "death" or "deaths") .. "  |  +" .. FormatTime(totalPenalty) .. " penalty",
         0.6,
         0.6, 0.6)
     else
@@ -776,15 +790,9 @@ end
 function TTQ:UpdateMythicPlusDisplay(el, data, width)
   if not el or not data then return 0 end
 
-  local objSize = self:GetSetting("objectiveFontSize")
-  local nameSize = self:GetSetting("questNameFontSize")
-  local headerSize = self:GetSetting("headerFontSize")
-  local headerFont = self:GetResolvedFont("header")
-  local questFont = self:GetResolvedFont("quest")
-  local objFont = self:GetResolvedFont("objective")
-  local headerOutline = self:GetSetting("headerFontOutline")
-  local objOutline = self:GetSetting("objectiveFontOutline")
-  local headerColor = self:GetSetting("headerColor")
+  local headerFont, headerSize, headerOutline, headerColor = self:GetFontSettings("header")
+  local questFont, nameSize = self:GetFontSettings("quest")
+  local objFont, objSize, objOutline = self:GetFontSettings("objective")
   local completeColor = self:GetSetting("objectiveCompleteColor")
   local incompleteColor = self:GetSetting("objectiveIncompleteColor")
 
@@ -794,15 +802,11 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
   ----------------------------------------------------------------
   -- Header
   ----------------------------------------------------------------
-  if not pcall(el.headerText.SetFont, el.headerText, headerFont, headerSize, headerOutline) then
-    pcall(el.headerText.SetFont, el.headerText, "Fonts\\FRIZQT__.TTF", headerSize, headerOutline)
-  end
+  TTQ:SafeSetFont(el.headerText, headerFont, headerSize, headerOutline)
   el.headerText:SetTextColor(headerColor.r, headerColor.g, headerColor.b)
   el.headerText:SetText(data.dungeonName)
 
-  if not pcall(el.keyBadge.SetFont, el.keyBadge, headerFont, headerSize, headerOutline) then
-    pcall(el.keyBadge.SetFont, el.keyBadge, "Fonts\\FRIZQT__.TTF", headerSize, headerOutline)
-  end
+  TTQ:SafeSetFont(el.keyBadge, headerFont, headerSize, headerOutline)
   el.keyBadge:SetText("+" .. data.keystoneLevel)
   el.keyBadge:SetTextColor(headerColor.r, headerColor.g, headerColor.b)
 
@@ -954,15 +958,11 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
   ----------------------------------------------------------------
   local timerColor = GetTimerColor(data.remaining, data.timeLimit)
 
-  if not pcall(el.timerText.SetFont, el.timerText, questFont, nameSize + 2, objOutline) then
-    pcall(el.timerText.SetFont, el.timerText, "Fonts\\FRIZQT__.TTF", nameSize + 2, objOutline)
-  end
+  TTQ:SafeSetFont(el.timerText, questFont, nameSize + 2, objOutline)
   el.timerText:SetText(FormatTime(data.elapsed))
   el.timerText:SetTextColor(timerColor.r, timerColor.g, timerColor.b)
 
-  if not pcall(el.timerRemaining.SetFont, el.timerRemaining, objFont, objSize, objOutline) then
-    pcall(el.timerRemaining.SetFont, el.timerRemaining, "Fonts\\FRIZQT__.TTF", objSize, objOutline)
-  end
+  TTQ:SafeSetFont(el.timerRemaining, objFont, objSize, objOutline)
   local remText, remColor = GetTimerRemainingInfo(data)
   el.timerRemaining:SetText(remText)
   local rc = remColor or timerColor
@@ -1010,9 +1010,7 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
       end
       tick.line:SetColorTexture(tickColor.r, tickColor.g, tickColor.b, 0.7)
 
-      if not pcall(tick.label.SetFont, tick.label, objFont, objSize - 3, objOutline) then
-        pcall(tick.label.SetFont, tick.label, "Fonts\\FRIZQT__.TTF", objSize - 3, objOutline)
-      end
+      TTQ:SafeSetFont(tick.label, objFont, objSize - 3, objOutline)
       tick.label:SetText(ct.label)
       tick.label:SetTextColor(tickColor.r, tickColor.g, tickColor.b)
       tick.label:ClearAllPoints()
@@ -1050,12 +1048,8 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
         color = MP.Colors.chestLost
       end
 
-      if not pcall(ci.label.SetFont, ci.label, objFont, objSize, objOutline) then
-        pcall(ci.label.SetFont, ci.label, "Fonts\\FRIZQT__.TTF", objSize, objOutline)
-      end
-      if not pcall(ci.timeLabel.SetFont, ci.timeLabel, objFont, objSize - 1, objOutline) then
-        pcall(ci.timeLabel.SetFont, ci.timeLabel, "Fonts\\FRIZQT__.TTF", objSize - 1, objOutline)
-      end
+      TTQ:SafeSetFont(ci.label, objFont, objSize, objOutline)
+      TTQ:SafeSetFont(ci.timeLabel, objFont, objSize - 1, objOutline)
 
       ci.label:SetText(ct.label)
       ci.label:SetTextColor(color.r, color.g, color.b)
@@ -1083,12 +1077,8 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
   -- Deaths (only show if > 0)
   ----------------------------------------------------------------
   if data.deaths > 0 then
-    if not pcall(el.deathText.SetFont, el.deathText, objFont, objSize, objOutline) then
-      pcall(el.deathText.SetFont, el.deathText, "Fonts\\FRIZQT__.TTF", objSize, objOutline)
-    end
-    if not pcall(el.deathPenalty.SetFont, el.deathPenalty, objFont, objSize - 1, objOutline) then
-      pcall(el.deathPenalty.SetFont, el.deathPenalty, "Fonts\\FRIZQT__.TTF", objSize - 1, objOutline)
-    end
+    TTQ:SafeSetFont(el.deathText, objFont, objSize, objOutline)
+    TTQ:SafeSetFont(el.deathPenalty, objFont, objSize - 1, objOutline)
 
     el.deathText:SetText(data.deaths .. (data.deaths == 1 and " Death" or " Deaths"))
     el.deathText:SetTextColor(MP.Colors.deathColor.r, MP.Colors.deathColor.g, MP.Colors.deathColor.b)
@@ -1109,14 +1099,10 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
   -- Enemy forces bar
   ----------------------------------------------------------------
   if data.enemyTotal > 0 then
-    if not pcall(el.trashLabel.SetFont, el.trashLabel, objFont, objSize, objOutline) then
-      pcall(el.trashLabel.SetFont, el.trashLabel, "Fonts\\FRIZQT__.TTF", objSize, objOutline)
-    end
+    TTQ:SafeSetFont(el.trashLabel, objFont, objSize, objOutline)
     -- Larger, brighter font for percentage — key information
     local pctFontSize = objSize + 2
-    if not pcall(el.trashPct.SetFont, el.trashPct, objFont, pctFontSize, objOutline) then
-      pcall(el.trashPct.SetFont, el.trashPct, "Fonts\\FRIZQT__.TTF", pctFontSize, objOutline)
-    end
+    TTQ:SafeSetFont(el.trashPct, objFont, pctFontSize, objOutline)
 
     local pctStr = string.format("%.1f%%", data.enemyPct)
     el.trashPct:SetText(pctStr)
@@ -1151,12 +1137,8 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
   for i, boss in ipairs(data.bosses) do
     local bossItem = EnsureBossItem(el, mpFrame, i)
 
-    if not pcall(bossItem.name.SetFont, bossItem.name, objFont, objSize, objOutline) then
-      pcall(bossItem.name.SetFont, bossItem.name, "Fonts\\FRIZQT__.TTF", objSize, objOutline)
-    end
-    if not pcall(bossItem.dash.SetFont, bossItem.dash, objFont, objSize, objOutline) then
-      pcall(bossItem.dash.SetFont, bossItem.dash, "Fonts\\FRIZQT__.TTF", objSize, objOutline)
-    end
+    TTQ:SafeSetFont(bossItem.name, objFont, objSize, objOutline)
+    TTQ:SafeSetFont(bossItem.dash, objFont, objSize, objOutline)
 
     bossItem.name:SetText(boss.name)
     if boss.completed then
@@ -1249,9 +1231,7 @@ function TTQ:StartMythicPlusTimer()
   mpFrame:SetScript("OnUpdate", function(_, elapsed)
     if not TTQ:IsMythicPlusActive() then
       TTQ:StopMythicPlusTimer()
-      if TTQ.RefreshTracker then
-        TTQ:RefreshTracker()
-      end
+      TTQ:SafeRefreshTracker()
       return
     end
 
@@ -1369,18 +1349,12 @@ do
 
   evFrame:SetScript("OnEvent", function(_, evt, ...)
     if evt == "WORLD_STATE_TIMER_START" then
-      mpStartTime = GetTime()
-      mpCachedTimerID = nil
-      mpRunCompleted = false
-      mpCompletionTime = nil
-      mpCompletedOnTime = nil
-      mpCachedData = nil
-      wipe(mpDeathLog)
-      mpLastDeathCount = 0
+      ResetMPState()
+      mpState.startTime = GetTime()
 
       -- Run completed — freeze timer, keep display
     elseif evt == "CHALLENGE_MODE_COMPLETED" then
-      mpRunCompleted = true
+      mpState.runCompleted = true
       -- Use the authoritative CompletionInfo API (same approach as WarpDeplete)
       -- to get the precise completion time and onTime flag.
       local completionElapsed
@@ -1391,7 +1365,7 @@ do
             completionElapsed = info.time / 1000 -- convert ms → seconds
           end
           if info.onTime ~= nil then
-            mpCompletedOnTime = info.onTime
+            mpState.completedOnTime = info.onTime
           end
         end
       end
@@ -1403,32 +1377,20 @@ do
           completionElapsed = elapsed
         end
       end
-      mpCompletionTime = completionElapsed
+      mpState.completionTime = completionElapsed
       TTQ:StopMythicPlusTimer()
 
       -- Key reset
     elseif evt == "CHALLENGE_MODE_RESET" then
-      mpRunCompleted = false
-      mpCompletionTime = nil
-      mpCompletedOnTime = nil
-      mpCachedData = nil
-      mpStartTime = nil
-      mpCachedTimerID = nil
+      ResetMPState()
       TTQ:StopMythicPlusTimer()
 
       -- Detect leaving the instance after completion
     elseif evt == "PLAYER_ENTERING_WORLD" or evt == "ZONE_CHANGED_NEW_AREA" then
-      if mpRunCompleted then
+      if mpState.runCompleted then
         local _, instanceType = GetInstanceInfo()
         if instanceType ~= "party" and instanceType ~= "raid" then
-          mpRunCompleted = false
-          mpCompletionTime = nil
-          mpCompletedOnTime = nil
-          mpCachedData = nil
-          mpStartTime = nil
-          mpCachedTimerID = nil
-          wipe(mpDeathLog)
-          mpLastDeathCount = 0
+          ResetMPState()
         end
       end
 
@@ -1442,7 +1404,7 @@ do
 
       -- Must be in an active or just-completed run
       local _, instanceType, difficultyID = GetInstanceInfo()
-      if not (difficultyID == 8 and instanceType == "party") and not mpRunCompleted then return end
+      if not (difficultyID == 8 and instanceType == "party") and not mpState.runCompleted then return end
 
       -- Resolve name and class — try direct API first, then scan party GUIDs
       local destName, classToken
@@ -1485,49 +1447,42 @@ do
 
       -- Calculate elapsed time at death
       local elapsed = 0
-      if mpStartTime then
-        elapsed = GetTime() - mpStartTime
+      if mpState.startTime then
+        elapsed = GetTime() - mpState.startTime
       end
 
       -- Deduplicate: skip if this player was already logged within 3 seconds
       -- (guards against CHALLENGE_MODE_DEATH_COUNT_UPDATED racing us)
-      for idx = #mpDeathLog, math.max(1, #mpDeathLog - 4), -1 do
-        local prev = mpDeathLog[idx]
+      for idx = #mpState.deathLog, math.max(1, #mpState.deathLog - 4), -1 do
+        local prev = mpState.deathLog[idx]
         if prev and prev.name == destName and math.abs(prev.elapsed - elapsed) < 3 then
           return -- already logged by backup handler
         end
       end
 
-      mpDeathLog[#mpDeathLog + 1] = {
+      mpState.deathLog[#mpState.deathLog + 1] = {
         name = destName,
         class = classToken,
         elapsed = elapsed,
       }
-      mpLastDeathCount = #mpDeathLog
+      mpState.lastDeathCount = #mpState.deathLog
 
       -- Trigger a throttled UI refresh so the death shows immediately
-      if not TTQ._refreshTimer then
-        TTQ._refreshTimer = C_Timer.NewTimer(0.1, function()
-          TTQ._refreshTimer = nil
-          if TTQ.RefreshTracker then
-            TTQ:RefreshTracker()
-          end
-        end)
-      end
+      TTQ:ScheduleRefresh()
 
       -- Backup death detection via official death count API
     elseif evt == "CHALLENGE_MODE_DEATH_COUNT_UPDATED" then
       if not C_ChallengeMode or not C_ChallengeMode.GetDeathCount then return end
 
       local numDeaths = C_ChallengeMode.GetDeathCount() or 0
-      if numDeaths > mpLastDeathCount and #mpDeathLog < numDeaths then
+      if numDeaths > mpState.lastDeathCount and #mpState.deathLog < numDeaths then
         local elapsed = 0
-        if mpStartTime then
-          elapsed = GetTime() - mpStartTime
+        if mpState.startTime then
+          elapsed = GetTime() - mpState.startTime
         end
         -- Build set of recently logged names to avoid duplicates
         local recentlyLogged = {}
-        for _, entry in ipairs(mpDeathLog) do
+        for _, entry in ipairs(mpState.deathLog) do
           if math.abs(entry.elapsed - elapsed) < 2 then
             recentlyLogged[entry.name] = true
           end
@@ -1538,7 +1493,7 @@ do
           local pName = UnitName("player")
           if pName and not recentlyLogged[pName] then
             local _, cls = UnitClass("player")
-            mpDeathLog[#mpDeathLog + 1] = { name = pName, class = cls, elapsed = elapsed }
+            mpState.deathLog[#mpState.deathLog + 1] = { name = pName, class = cls, elapsed = elapsed }
             foundAny = true
           end
         end
@@ -1548,26 +1503,19 @@ do
             local pName = UnitName(unit)
             if pName and not recentlyLogged[pName] then
               local _, cls = UnitClass(unit)
-              mpDeathLog[#mpDeathLog + 1] = { name = pName, class = cls, elapsed = elapsed }
+              mpState.deathLog[#mpState.deathLog + 1] = { name = pName, class = cls, elapsed = elapsed }
               foundAny = true
             end
           end
         end
       end
       -- Always sync count so we don't re-process the same deaths
-      mpLastDeathCount = numDeaths
+      mpState.lastDeathCount = numDeaths
     end
 
     -- Throttled refresh for all M+ events
     if evt ~= "UNIT_DIED" then
-      if not TTQ._refreshTimer then
-        TTQ._refreshTimer = C_Timer.NewTimer(0.1, function()
-          TTQ._refreshTimer = nil
-          if TTQ.RefreshTracker then
-            TTQ:RefreshTracker()
-          end
-        end)
-      end
+      TTQ:ScheduleRefresh()
     end
   end)
 end

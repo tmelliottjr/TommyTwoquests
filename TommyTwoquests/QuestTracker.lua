@@ -7,26 +7,20 @@ local table, pairs, ipairs, pcall, CreateFrame, UIParent = table, pairs, ipairs,
 local C_QuestLog, C_Map, C_Texture, C_Timer = C_QuestLog, C_Map, C_Texture, C_Timer
 local wipe, math, GetTime = wipe, math, GetTime
 
-local HEADER_POOL = {}
 local activeQuestItems = {}
 local activeHeaders = {}
-local GROUP_CONTAINER_POOL = {}
 local activeGroupContainers = {}
 TTQ._activeGroupContainers = activeGroupContainers
 
 local SECTION_HEADER_HEIGHT = 22
-local SECTION_ANIM_DURATION = 0.28
 local SECTION_GROUP_SPACING = 4
--- Height of a section when collapsed (header + gap + spacing) — match layout so no jump on refresh
-local COLLAPSED_SECTION_HEIGHT = SECTION_HEADER_HEIGHT + 2 + SECTION_GROUP_SPACING
 
 ----------------------------------------------------------------------
--- Acquire / release group header rows
+-- Acquire / release group header rows (ObjectPool)
 ----------------------------------------------------------------------
-local function AcquireHeader(parent)
-    local header = table.remove(HEADER_POOL)
-    if not header then
-        header = {}
+local headerPool = TTQ:CreateObjectPool(
+    function(parent)
+        local header = {}
         -- Button so it's clickable to collapse/expand
         local frame = CreateFrame("Button", nil, parent)
         frame:SetHeight(22)
@@ -69,25 +63,26 @@ local function AcquireHeader(parent)
         sep:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
         sep:SetColorTexture(1, 1, 1, 0.08)
         header.sep = sep
-    end
-    header.frame:SetParent(parent)
-    header.frame:Show()
-    return header
+
+        return header
+    end,
+    nil -- pool base handles Hide/ClearAllPoints
+)
+
+local function AcquireHeader(parent)
+    return headerPool:Acquire(parent)
 end
 
 local function ReleaseHeader(header)
-    header.frame:Hide()
-    header.frame:ClearAllPoints()
-    table.insert(HEADER_POOL, header)
+    headerPool:Release(header)
 end
 
 ----------------------------------------------------------------------
--- Group container: wraps header + quest items for section collapse animation
+-- Group container: wraps header + quest items for section collapse animation (ObjectPool)
 ----------------------------------------------------------------------
-local function AcquireGroupContainer(parent)
-    local gc = table.remove(GROUP_CONTAINER_POOL)
-    if not gc then
-        gc = {}
+local groupContainerPool = TTQ:CreateObjectPool(
+    function(parent)
+        local gc = {}
         local frame = CreateFrame("Frame", nil, parent)
         frame:SetClipsChildren(true)
         gc.frame = frame
@@ -95,9 +90,30 @@ local function AcquireGroupContainer(parent)
         contentFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -(SECTION_HEADER_HEIGHT + 2))
         contentFrame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -(SECTION_HEADER_HEIGHT + 2))
         gc.contentFrame = contentFrame
+        return gc
+    end,
+    function(gc)
+        if gc.header then
+            ReleaseHeader(gc.header)
+            gc.header = nil
+        end
+        for _, item in ipairs(gc.questItems or {}) do
+            TTQ:ReleaseQuestItem(item)
+        end
+        if gc.questItems then wipe(gc.questItems) end
+        -- Release scenario objective items (different pool)
+        if gc._scenarioObjItems then
+            for _, objItem in ipairs(gc._scenarioObjItems) do
+                TTQ:ReleaseObjectiveItem(objItem)
+            end
+            wipe(gc._scenarioObjItems)
+        end
+        gc.frame:SetClipsChildren(true)
     end
-    gc.frame:SetParent(parent)
-    gc.frame:Show()
+)
+
+local function AcquireGroupContainer(parent)
+    local gc = groupContainerPool:Acquire(parent)
     gc.frame:SetHeight(100)
     gc.contentFrame:SetAlpha(1)
     gc.header = nil
@@ -107,25 +123,7 @@ local function AcquireGroupContainer(parent)
 end
 
 local function ReleaseGroupContainer(gc)
-    if gc.header then
-        ReleaseHeader(gc.header)
-        gc.header = nil
-    end
-    for _, item in ipairs(gc.questItems) do
-        TTQ:ReleaseQuestItem(item)
-    end
-    wipe(gc.questItems)
-    -- Release scenario objective items (different pool)
-    if gc._scenarioObjItems then
-        for _, objItem in ipairs(gc._scenarioObjItems) do
-            TTQ:ReleaseObjectiveItem(objItem)
-        end
-        wipe(gc._scenarioObjItems)
-    end
-    gc.frame:Hide()
-    gc.frame:ClearAllPoints()
-    gc.frame:SetClipsChildren(true)
-    table.insert(GROUP_CONTAINER_POOL, gc)
+    groupContainerPool:Release(gc)
 end
 
 ----------------------------------------------------------------------
@@ -133,7 +131,7 @@ end
 ----------------------------------------------------------------------
 function TTQ:InitTracker()
     self:CreateTrackerFrame()
-    self:RefreshTracker()
+    self:SafeRefreshTracker()
 end
 
 ----------------------------------------------------------------------
@@ -198,17 +196,6 @@ function TTQ:CreateTrackerFrame()
         })
     end)
 
-    -- Fade behavior
-    if self:GetSetting("fadeWhenNotHovered") then
-        tracker:SetAlpha(self:GetSetting("fadeAlpha"))
-        tracker:SetScript("OnEnter", function(self)
-            self:SetAlpha(1)
-        end)
-        tracker:SetScript("OnLeave", function(self)
-            TTQ:SetFadeIfEnabled(self)
-        end)
-    end
-
     -- Title bar
     local titleBar = CreateFrame("Frame", nil, tracker)
     titleBar:SetHeight(28)
@@ -272,7 +259,7 @@ function TTQ:CreateTrackerFrame()
     collapseBtn:SetScript("OnClick", function()
         local collapsed = TTQ:GetSetting("collapsed")
         TTQ:SetSetting("collapsed", not collapsed)
-        TTQ:RefreshTracker()
+        TTQ:SafeRefreshTracker()
     end)
     self.CollapseBtn = collapseBtn
 
@@ -457,10 +444,6 @@ function TTQ:UpdateHeaderButtonHover()
             if TTQ.CollapseBtn then TTQ.CollapseBtn:SetAlpha(1) end
             if TTQ.SettingsBtn then TTQ.SettingsBtn:SetAlpha(1) end
             if TTQ.FilterBtn then TTQ.FilterBtn:SetAlpha(1) end
-            -- Also handle fade behavior
-            if TTQ:GetSetting("fadeWhenNotHovered") then
-                frame:SetAlpha(1)
-            end
         end)
         self.Tracker:SetScript("OnLeave", function(frame)
             if not TTQ:GetSetting("showTrackerHeader") then
@@ -471,7 +454,6 @@ function TTQ:UpdateHeaderButtonHover()
                     if TTQ.FilterBtn then TTQ.FilterBtn:SetAlpha(0) end
                 end
             end
-            TTQ:SetFadeIfEnabled(frame)
         end)
 
         -- Also hook the title bar for mouse detection (buttons are children of it)
@@ -479,9 +461,6 @@ function TTQ:UpdateHeaderButtonHover()
             if TTQ.CollapseBtn then TTQ.CollapseBtn:SetAlpha(1) end
             if TTQ.SettingsBtn then TTQ.SettingsBtn:SetAlpha(1) end
             if TTQ.FilterBtn then TTQ.FilterBtn:SetAlpha(1) end
-            if TTQ:GetSetting("fadeWhenNotHovered") then
-                TTQ.Tracker:SetAlpha(1)
-            end
         end)
         self.TitleBar:SetScript("OnLeave", function()
             if not TTQ.Tracker:IsMouseOver() then
@@ -490,7 +469,6 @@ function TTQ:UpdateHeaderButtonHover()
                     if TTQ.SettingsBtn then TTQ.SettingsBtn:SetAlpha(0) end
                     if TTQ.FilterBtn then TTQ.FilterBtn:SetAlpha(0) end
                 end
-                TTQ:SetFadeIfEnabled(TTQ.Tracker)
             end
         end)
     else
@@ -499,18 +477,8 @@ function TTQ:UpdateHeaderButtonHover()
         self.SettingsBtn:SetAlpha(1)
         self.FilterBtn:SetAlpha(1)
 
-        -- Restore fade-only hover behavior
-        if self:GetSetting("fadeWhenNotHovered") then
-            self.Tracker:SetScript("OnEnter", function(frame)
-                frame:SetAlpha(1)
-            end)
-            self.Tracker:SetScript("OnLeave", function(frame)
-                TTQ:SetFadeIfEnabled(frame)
-            end)
-        else
-            self.Tracker:SetScript("OnEnter", nil)
-            self.Tracker:SetScript("OnLeave", nil)
-        end
+        self.Tracker:SetScript("OnEnter", nil)
+        self.Tracker:SetScript("OnLeave", nil)
         self.TitleBar:SetScript("OnEnter", nil)
         self.TitleBar:SetScript("OnLeave", nil)
     end
@@ -618,17 +586,6 @@ function TTQ:UpdateTrackerBackdrop()
 end
 
 ----------------------------------------------------------------------
--- Fade helper
-----------------------------------------------------------------------
-function TTQ:SetFadeIfEnabled(frame)
-    if self:GetSetting("fadeWhenNotHovered") then
-        frame:SetAlpha(self:GetSetting("fadeAlpha"))
-    else
-        frame:SetAlpha(1)
-    end
-end
-
-----------------------------------------------------------------------
 -- Update scroll indicators based on current scroll position
 -- Positions corner marks just below the last visible content line
 ----------------------------------------------------------------------
@@ -677,7 +634,6 @@ do
         "QUEST_POI_UPDATE",
         -- Recipe tracking events
         "TRACKED_RECIPE_UPDATE",
-        "BAG_UPDATE",
         "BAG_UPDATE_DELAYED",
         "TRADE_SKILL_LIST_UPDATE",
         "CRAFTINGORDERS_RECIPE_LIST_UPDATE",
@@ -686,14 +642,7 @@ do
         pcall(qf.RegisterEvent, qf, ev)
     end
     qf:SetScript("OnEvent", function()
-        if not TTQ._refreshTimer then
-            TTQ._refreshTimer = C_Timer.NewTimer(0.1, function()
-                TTQ._refreshTimer = nil
-                if TTQ.RefreshTracker then
-                    TTQ:RefreshTracker()
-                end
-            end)
-        end
+        TTQ:ScheduleRefresh()
     end)
 
     -- Scenario / dungeon events
@@ -713,14 +662,7 @@ do
         pcall(sf.RegisterEvent, sf, ev)
     end
     sf:SetScript("OnEvent", function()
-        if not TTQ._refreshTimer then
-            TTQ._refreshTimer = C_Timer.NewTimer(0.1, function()
-                TTQ._refreshTimer = nil
-                if TTQ.RefreshTracker then
-                    TTQ:RefreshTracker()
-                end
-            end)
-        end
+        TTQ:ScheduleRefresh()
     end)
 
     -- Combat hiding (enter / leave combat)
@@ -923,13 +865,8 @@ function TTQ:RefreshTracker()
         header.frame:SetWidth(width)
         header.frame:SetHeight(SECTION_HEADER_HEIGHT)
 
-        local headerSize = self:GetSetting("headerFontSize")
-        local headerFont = self:GetResolvedFont("header")
-        local headerOutline = self:GetSetting("headerFontOutline")
-        local headerColor = self:GetSetting("headerColor")
-        if not pcall(header.text.SetFont, header.text, headerFont, headerSize, headerOutline) then
-            pcall(header.text.SetFont, header.text, "Fonts\\FRIZQT__.TTF", headerSize, headerOutline)
-        end
+        local headerFont, headerSize, headerOutline, headerColor = self:GetFontSettings("header")
+        TTQ:SafeSetFont(header.text, headerFont, headerSize, headerOutline)
         header.text:SetTextColor(headerColor.r, headerColor.g, headerColor.b)
 
         local headerLabel = scenarioInfo.name
@@ -946,6 +883,7 @@ function TTQ:RefreshTracker()
             header.icon:SetDesaturated(false)
             header.icon:SetVertexColor(1, 1, 1)
             header.icon:Show()
+            header.text:SetPoint("LEFT", header.icon, "RIGHT", 5, 0)
         else
             header.icon:Hide()
             header.text:SetPoint("LEFT", header.frame, "LEFT", 0, 0)
@@ -965,22 +903,14 @@ function TTQ:RefreshTracker()
         end
         header.collapseInd:SetText(isScenarioCollapsed and "+" or "-")
         -- Style the collapse indicator to match quest name font
-        local indFont = self:GetResolvedFont("quest")
-        local indSize = self:GetSetting("questNameFontSize")
-        local indOutline = self:GetSetting("questNameFontOutline")
-        if not pcall(header.collapseInd.SetFont, header.collapseInd, indFont, indSize, indOutline) then
-            pcall(header.collapseInd.SetFont, header.collapseInd, "Fonts\\FRIZQT__.TTF", indSize, indOutline)
-        end
+        local indFont, indSize, indOutline = self:GetFontSettings("quest")
+        TTQ:SafeSetFont(header.collapseInd, indFont, indSize, indOutline)
         header.collapseInd:SetTextColor(1, 1, 1)
 
         -- Click: toggle collapse/expand instantly
         header.frame:SetScript("OnClick", function()
-            local cg = TTQ:GetSetting("collapsedGroups")
-            if type(cg) ~= "table" then cg = {} end
-            cg = TTQ:DeepCopy(cg)
-            cg["_scenario"] = not cg["_scenario"] and true or false
-            TTQ:SetSetting("collapsedGroups", cg)
-            TTQ:RefreshTracker()
+            TTQ:ToggleCollapse("collapsedGroups", "_scenario")
+            TTQ:SafeRefreshTracker()
         end)
 
         header.frame:SetScript("OnEnter", function(btn)
@@ -1003,9 +933,7 @@ function TTQ:RefreshTracker()
         -- Boss objectives (skip if collapsed)
         if not isScenarioCollapsed then
             local yInGroup = 0
-            local objFontSize = self:GetSetting("objectiveFontSize")
-            local objFont = self:GetResolvedFont("objective")
-            local objOutline = self:GetSetting("objectiveFontOutline")
+            local objFont, objFontSize, objOutline = self:GetFontSettings("objective")
             local completeColor = self:GetSetting("objectiveCompleteColor")
             local incompleteColor = self:GetSetting("objectiveIncompleteColor")
             -- Indent to align objective text with quest names under category headers
@@ -1014,17 +942,13 @@ function TTQ:RefreshTracker()
             for _, criteria in ipairs(scenarioInfo.stages) do
                 local objItem = self:AcquireObjectiveItem(gc.contentFrame)
                 objItem.frame:SetWidth(width - scenarioIndent)
-                if not pcall(objItem.text.SetFont, objItem.text, objFont, objFontSize, objOutline) then
-                    pcall(objItem.text.SetFont, objItem.text, "Fonts\\FRIZQT__.TTF", objFontSize, objOutline)
-                end
-                if not pcall(objItem.dash.SetFont, objItem.dash, objFont, objFontSize, objOutline) then
-                    pcall(objItem.dash.SetFont, objItem.dash, "Fonts\\FRIZQT__.TTF", objFontSize, objOutline)
-                end
+                TTQ:SafeSetFont(objItem.text, objFont, objFontSize, objOutline)
+                TTQ:SafeSetFont(objItem.dash, objFont, objFontSize, objOutline)
                 if criteria.completed then
                     objItem.text:SetTextColor(completeColor.r, completeColor.g, completeColor.b)
                     objItem.dash:SetTextColor(completeColor.r, completeColor.g, completeColor.b)
                     objItem.dash:SetText("|T Interface\\AddOns\\TommyTwoquests\\Textures\\checkmark:" ..
-                    objFontSize .. "|t")
+                        objFontSize .. "|t")
                 else
                     objItem.text:SetTextColor(incompleteColor.r, incompleteColor.g, incompleteColor.b)
                     objItem.dash:SetTextColor(incompleteColor.r, incompleteColor.g, incompleteColor.b)
@@ -1079,13 +1003,8 @@ function TTQ:RefreshTracker()
         header.frame:SetWidth(width)
         header.frame:SetHeight(SECTION_HEADER_HEIGHT)
 
-        local headerSize = self:GetSetting("headerFontSize")
-        local headerFont = self:GetResolvedFont("header")
-        local headerOutline = self:GetSetting("headerFontOutline")
-        local headerColor = self:GetSetting("headerColor")
-        if not pcall(header.text.SetFont, header.text, headerFont, headerSize, headerOutline) then
-            pcall(header.text.SetFont, header.text, "Fonts\\FRIZQT__.TTF", headerSize, headerOutline)
-        end
+        local headerFont, headerSize, headerOutline, headerColor = self:GetFontSettings("header")
+        TTQ:SafeSetFont(header.text, headerFont, headerSize, headerOutline)
         header.text:SetTextColor(headerColor.r, headerColor.g, headerColor.b)
         header.text:SetText(group.headerName)
 
@@ -1105,6 +1024,7 @@ function TTQ:RefreshTracker()
             header.icon:SetDesaturated(false)
             header.icon:SetVertexColor(1, 1, 1)
             header.icon:Show()
+            header.text:SetPoint("LEFT", header.icon, "RIGHT", 5, 0)
         else
             header.icon:Hide()
             header.text:SetPoint("LEFT", header.frame, "LEFT", 0, 0)
@@ -1118,9 +1038,7 @@ function TTQ:RefreshTracker()
             header.count:SetText(numComplete .. "/" .. #group.quests)
             -- Apply correct font to count
             local countSize = math.max(9, headerSize - 2)
-            if not pcall(header.count.SetFont, header.count, headerFont, countSize, headerOutline) then
-                pcall(header.count.SetFont, header.count, "Fonts\\FRIZQT__.TTF", countSize, headerOutline)
-            end
+            TTQ:SafeSetFont(header.count, headerFont, countSize, headerOutline)
             if numComplete == #group.quests and #group.quests > 0 then
                 local ec = self:GetSetting("objectiveCompleteColor")
                 header.count:SetTextColor(ec.r, ec.g, ec.b)
@@ -1135,23 +1053,15 @@ function TTQ:RefreshTracker()
         header.collapseInd:SetText(isGroupCollapsed and "+" or "-")
         -- Style the collapse indicator to match quest name font
         do
-            local indFont = self:GetResolvedFont("quest")
-            local indSize = self:GetSetting("questNameFontSize")
-            local indOutline = self:GetSetting("questNameFontOutline")
-            if not pcall(header.collapseInd.SetFont, header.collapseInd, indFont, indSize, indOutline) then
-                pcall(header.collapseInd.SetFont, header.collapseInd, "Fonts\\FRIZQT__.TTF", indSize, indOutline)
-            end
+            local indFont, indSize, indOutline = self:GetFontSettings("quest")
+            TTQ:SafeSetFont(header.collapseInd, indFont, indSize, indOutline)
             header.collapseInd:SetTextColor(1, 1, 1)
         end
 
         -- Click: toggle collapse/expand instantly
         header.frame:SetScript("OnClick", function()
-            local cg = TTQ:GetSetting("collapsedGroups")
-            if type(cg) ~= "table" then cg = {} end
-            cg = TTQ:DeepCopy(cg)
-            cg[questType] = not cg[questType] and true or false
-            TTQ:SetSetting("collapsedGroups", cg)
-            TTQ:RefreshTracker()
+            TTQ:ToggleCollapse("collapsedGroups", questType)
+            TTQ:SafeRefreshTracker()
         end)
 
         header.frame:SetScript("OnEnter", function(btn)
@@ -1233,9 +1143,7 @@ function TTQ:RefreshTracker()
     local titleFont = self:GetResolvedFont("header")
     local titleSize = self:GetSetting("headerFontSize") + 1
     local titleOutline = self:GetSetting("headerFontOutline")
-    if not pcall(self.TitleText.SetFont, self.TitleText, titleFont, titleSize, titleOutline or "") then
-        pcall(self.TitleText.SetFont, self.TitleText, "Fonts\\FRIZQT__.TTF", titleSize, titleOutline or "")
-    end
+    self:SafeSetFont(self.TitleText, titleFont, titleSize, titleOutline or "")
 
     -- Resize tracker to fit content, capped at max height
     local contentHeight = math.max(1, yOffset)
@@ -1519,7 +1427,7 @@ function TTQ:CreateFilterDropdownFrame()
         local cur = TTQ:GetSetting("filterByCurrentZone")
         TTQ:SetSetting("filterByCurrentZone", not cur)
         TTQ:RefreshFilterDropdown()
-        TTQ:RefreshTracker()
+        TTQ:SafeRefreshTracker()
     end)
 
     zoneRow:SetScript("OnEnter", function(self)
@@ -1570,7 +1478,7 @@ function TTQ:CreateFilterDropdownFrame()
         local cur = TTQ:GetSetting("groupCurrentZoneQuests")
         TTQ:SetSetting("groupCurrentZoneQuests", not cur)
         TTQ:RefreshFilterDropdown()
-        TTQ:RefreshTracker()
+        TTQ:SafeRefreshTracker()
     end)
 
     groupZoneRow:SetScript("OnEnter", function(self)
@@ -1666,7 +1574,7 @@ function TTQ:CreateFilterDropdownFrame()
             local cur = TTQ:GetSetting(entry.setting)
             TTQ:SetSetting(entry.setting, not cur)
             TTQ:RefreshFilterDropdown()
-            TTQ:RefreshTracker()
+            TTQ:SafeRefreshTracker()
         end)
 
         table.insert(rows, row)
@@ -1719,7 +1627,7 @@ function TTQ:CreateFilterDropdownFrame()
             TTQ:SetSetting(row.settingKey, true)
         end
         TTQ:RefreshFilterDropdown()
-        TTQ:RefreshTracker()
+        TTQ:SafeRefreshTracker()
     end)
 
     local sep = actionRow:CreateFontString(nil, "OVERLAY")
@@ -1733,7 +1641,7 @@ function TTQ:CreateFilterDropdownFrame()
             TTQ:SetSetting(row.settingKey, false)
         end
         TTQ:RefreshFilterDropdown()
-        TTQ:RefreshTracker()
+        TTQ:SafeRefreshTracker()
     end)
 
     y = y - 22

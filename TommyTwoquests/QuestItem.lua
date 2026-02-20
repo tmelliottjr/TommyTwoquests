@@ -8,42 +8,38 @@ local C_SuperTrack, C_QuestLog, C_Texture = C_SuperTrack, C_QuestLog, C_Texture
 local C_Timer = C_Timer
 local wipe, math, string, GetTime = wipe, math, string, GetTime
 
-local QUEST_ITEM_POOL = {}
-
--- Fixed left indent for quest name text (aligns with category header text)
-local NAME_INDENT = 0
 -- Width reserved for focus icon on the left
 local FOCUS_ICON_WIDTH = 14
+
+-- Object pool for quest rows
+local questItemPool = TTQ:CreateObjectPool(
+    function(parent) return TTQ:CreateQuestItem(parent) end,
+    function(item)
+        if item.objectiveItems then
+            for _, objItem in ipairs(item.objectiveItems) do
+                TTQ:ReleaseObjectiveItem(objItem)
+            end
+            wipe(item.objectiveItems)
+        end
+        -- Clear any running animation state
+        item._animState = nil
+        -- Reset hover color state so pooled items don't carry stale tints
+        item._hoverAnimT = 0
+        item.frame:SetScript("OnUpdate", nil)
+    end
+)
 
 ----------------------------------------------------------------------
 -- Acquire / release quest rows
 ----------------------------------------------------------------------
 function TTQ:AcquireQuestItem(parent)
-    local item = table.remove(QUEST_ITEM_POOL)
-    if not item then
-        item = self:CreateQuestItem(parent)
-    end
-    item.frame:SetParent(parent)
-    item.frame:Show()
+    local item = questItemPool:Acquire(parent)
     item.objectiveItems = item.objectiveItems or {}
     return item
 end
 
 function TTQ:ReleaseQuestItem(item)
-    if item.objectiveItems then
-        for _, objItem in ipairs(item.objectiveItems) do
-            self:ReleaseObjectiveItem(objItem)
-        end
-        wipe(item.objectiveItems)
-    end
-    -- Clear any running animation state
-    item._animState = nil
-    -- Reset hover color state so pooled items don't carry stale tints
-    item._hoverAnimT = 0
-    item.frame:Hide()
-    item.frame:ClearAllPoints()
-    item.frame:SetScript("OnUpdate", nil)
-    table.insert(QUEST_ITEM_POOL, item)
+    questItemPool:Release(item)
 end
 
 ----------------------------------------------------------------------
@@ -57,7 +53,6 @@ end
 function TTQ:SetQuestCollapsed(questID, collapsed)
     local cq = self:GetSetting("collapsedQuests")
     if type(cq) ~= "table" then cq = {} end
-    cq = self:DeepCopy(cq)
     if collapsed == true then
         cq[questID] = true
     elseif collapsed == false then
@@ -130,19 +125,12 @@ function TTQ:CreateQuestItem(parent)
         if button == "LeftButton" then
             -- Click: toggle collapse/expand instantly
             local isCollapsed = TTQ:IsQuestCollapsed(questID)
-            -- Account for auto-collapsed completed quests
-            if questData.isComplete and TTQ:GetSetting("collapseCompleted") then
-                local cq = TTQ:GetSetting("collapsedQuests")
-                if not (cq and cq[questID] == false) then
-                    isCollapsed = true
-                end
-            end
             if isCollapsed then
                 TTQ:SetQuestCollapsed(questID, false)
             else
                 TTQ:SetQuestCollapsed(questID, true)
             end
-            TTQ:RefreshTracker()
+            TTQ:SafeRefreshTracker()
         elseif button == "RightButton" then
             TTQ:ShowQuestContextMenu(item)
         end
@@ -253,26 +241,12 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
     local questID = quest.questID
     local isCollapsed = self:IsQuestCollapsed(questID)
 
-    -- Auto-collapse completed quests when collapseCompleted is on,
-    -- unless the user has explicitly expanded this quest (stored as false).
-    if quest.isComplete and self:GetSetting("collapseCompleted") then
-        local cq = self:GetSetting("collapsedQuests")
-        -- Only treat as expanded if the user explicitly set it to false
-        if not (cq and cq[questID] == false) then
-            isCollapsed = true
-        end
-    end
-
     -- Focus icon / expand indicator
     if isCollapsed then
         -- Show "+" when quest is collapsed; use quest name font settings
         item.focusIcon:SetAlpha(0)
-        local nameFont = self:GetResolvedFont("quest")
-        local nameSize = self:GetSetting("questNameFontSize")
-        local nameOutline = self:GetSetting("questNameFontOutline")
-        if not pcall(item.expandInd.SetFont, item.expandInd, nameFont, nameSize, nameOutline) then
-            pcall(item.expandInd.SetFont, item.expandInd, "Fonts\\FRIZQT__.TTF", nameSize, nameOutline)
-        end
+        local nameFont, nameSize, nameOutline = self:GetFontSettings("quest")
+        self:SafeSetFont(item.expandInd, nameFont, nameSize, nameOutline)
         if quest.isSuperTracked then
             local sc = self:GetSetting("focusColor") or self:GetSetting("superTrackedColor") or
                 { r = 1, g = 0.82, b = 0 }
@@ -313,12 +287,8 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
     item.name:SetHeight(20)
 
     -- Font
-    local nameSize = self:GetSetting("questNameFontSize")
-    local nameFont = self:GetResolvedFont("quest")
-    local nameOutline = self:GetSetting("questNameFontOutline")
-    if not pcall(item.name.SetFont, item.name, nameFont, nameSize, nameOutline) then
-        pcall(item.name.SetFont, item.name, "Fonts\\FRIZQT__.TTF", nameSize, nameOutline)
-    end
+    local nameFont, nameSize, nameOutline = self:GetFontSettings("quest")
+    self:SafeSetFont(item.name, nameFont, nameSize, nameOutline)
 
     -- Title text
     local title = quest.title
@@ -407,10 +377,8 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
             }
             self:UpdateObjectiveItem(objItem, descObj, false)
             -- Style as italic to distinguish from real objectives
-            local fontSize = self:GetSetting("objectiveFontSize")
-            local fontFace = self:GetResolvedFont("objective")
-            local fontOutline = self:GetSetting("objectiveFontOutline")
-            pcall(objItem.text.SetFont, objItem.text, fontFace, fontSize, fontOutline)
+            local fontFace, fontSize, fontOutline = self:GetFontSettings("objective")
+            self:SafeSetFont(objItem.text, fontFace, fontSize, fontOutline)
             local hintColor = self:GetSetting("objectiveIncompleteColor")
             objItem.text:SetTextColor(hintColor.r * 0.8, hintColor.g * 0.8, hintColor.b * 0.8)
             objItem.dash:SetText("")
@@ -443,233 +411,110 @@ end
 ----------------------------------------------------------------------
 -- Right-click context menu
 ----------------------------------------------------------------------
-local MENU_ROW = 22
-local MENU_PAD = 6
-local MENU_WIDTH = 200
-
-function TTQ:CreateQuestContextMenuFrame()
-    if self.QuestContextMenuFrame then return end
-
-    local frame = CreateFrame("Frame", "TTQQuestContextMenu", UIParent, "BackdropTemplate")
-    frame:SetWidth(MENU_WIDTH + MENU_PAD * 2)
-    frame:SetClampedToScreen(true)
-    frame:SetFrameStrata("TOOLTIP")
-    frame:SetFrameLevel(100)
-    frame:SetBackdrop({
-        bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile     = true,
-        tileSize = 16,
-        edgeSize = 14,
-        insets   = { left = 4, right = 4, top = 4, bottom = 4 },
-    })
-    frame:SetBackdropColor(0.06, 0.06, 0.08, 0.96)
-    frame:SetBackdropBorderColor(0.25, 0.28, 0.35, 0.7)
-    frame:Hide()
-
-    -- Click-away catcher
-    local catcher = CreateFrame("Button", nil, UIParent)
-    catcher:SetFrameStrata("TOOLTIP")
-    catcher:SetFrameLevel(99)
-    catcher:SetAllPoints(UIParent)
-    catcher:EnableMouse(true)
-    catcher:RegisterForClicks("AnyUp")
-    catcher:Hide()
-    catcher:SetScript("OnClick", function()
-        catcher:Hide()
-        TTQ:HideQuestContextMenu()
-    end)
-    frame.clickCatcher = catcher
-
-    local content = CreateFrame("Frame", nil, frame)
-    content:SetPoint("TOPLEFT", frame, "TOPLEFT", MENU_PAD, -MENU_PAD)
-    content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -MENU_PAD, MENU_PAD)
-    content:SetFrameLevel(frame:GetFrameLevel() + 1)
-    frame.content = content
-
-    -- Title
-    local title = TTQ:CreateText(content, 13, { r = 1, g = 0.82, b = 0 }, "LEFT")
-    title:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
-    title:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, 0)
-    title:SetWordWrap(true)
-    title:SetNonSpaceWrap(false)
-    frame.title = title
-
-    -- Menu button factory
-    local function makeBtn(label)
-        local btn = CreateFrame("Button", nil, content)
-        btn:SetHeight(MENU_ROW)
-        btn:SetWidth(MENU_WIDTH)
-        btn:SetFrameLevel(content:GetFrameLevel() + 1)
-        local hl = btn:CreateTexture(nil, "HIGHLIGHT")
-        hl:SetAllPoints()
-        hl:SetColorTexture(1, 1, 1, 0.06)
-        local text = TTQ:CreateText(btn, 12, { r = 0.9, g = 0.9, b = 0.9 }, "LEFT")
-        text:SetPoint("LEFT", btn, "LEFT", 4, 0)
-        text:SetText(label)
-        btn.label = text
-        btn:SetScript("OnClick", function()
-            if btn.onClick then btn.onClick() end
-            TTQ:HideQuestContextMenu()
-        end)
-        btn:SetScript("OnEnter", function(self)
-            if btn.tooltip then
-                GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-                GameTooltip:SetText(btn.tooltip, 0.9, 0.9, 0.9)
-                GameTooltip:Show()
-            end
-        end)
-        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        return btn
-    end
-
-    local titleH      = 24
-    frame.btnFocus    = makeBtn("Focus")
-    frame.btnCollapse = makeBtn("Collapse")
-    frame.btnShowMap  = makeBtn("Show on Map")
-    frame.btnUntrack  = makeBtn("Untrack")
-    frame.btnShare    = makeBtn("Share Quest")
-    frame.btnAbandon  = makeBtn("Abandon Quest")
-
-    -- Position buttons dynamically in ShowQuestContextMenu
-    frame.buttons     = { frame.btnFocus, frame.btnCollapse, frame.btnShowMap, frame.btnUntrack, frame.btnShare, frame
-        .btnAbandon }
-
-    frame:SetScript("OnHide", function()
-        if frame.clickCatcher and frame.clickCatcher:IsShown() then
-            frame.clickCatcher:Hide()
-        end
-    end)
-
-    self.QuestContextMenuFrame = frame
-end
-
-function TTQ:HideQuestContextMenu()
-    if self.QuestContextMenuFrame then
-        self.QuestContextMenuFrame:Hide()
-    end
-    if self.QuestContextMenuFrame and self.QuestContextMenuFrame.clickCatcher then
-        self.QuestContextMenuFrame.clickCatcher:Hide()
-    end
-end
-
 function TTQ:ShowQuestContextMenu(item)
     local quest = item.questData
     if not quest then return end
 
-    self:CreateQuestContextMenuFrame()
-    local frame = self.QuestContextMenuFrame
-
-    frame.title:SetText(quest.title)
-    frame.title:SetHeight(math.max(20, frame.title:GetStringHeight() + 4))
+    if not self._questContextMenu then
+        self._questContextMenu = self:CreateContextMenu("TTQQuestContextMenu")
+    end
 
     local questID = quest.questID
     local isCollapsed = self:IsQuestCollapsed(questID)
     local isFocused = quest.isSuperTracked
 
-    -- Focus
-    frame.btnFocus.label:SetText(isFocused and "Unfocus" or "Focus")
-    frame.btnFocus.tooltip = isFocused
-        and "Stop focusing this quest."
-        or "Focus on this quest. The game will guide you with an on-screen arrow."
-    frame.btnFocus.onClick = function()
-        if isFocused then
-            C_SuperTrack.SetSuperTrackedQuestID(0)
-        else
-            C_SuperTrack.SetSuperTrackedQuestID(questID)
-        end
-        self:RefreshTracker()
-    end
-    frame.btnFocus.label:SetTextColor(0.9, 0.9, 0.9)
-
-    -- Collapse / Expand
-    frame.btnCollapse.label:SetText(isCollapsed and "Expand" or "Collapse")
-    frame.btnCollapse.tooltip = isCollapsed
-        and "Show objectives for this quest."
-        or "Hide objectives for this quest."
-    frame.btnCollapse.onClick = function()
-        self:SetQuestCollapsed(questID, not isCollapsed)
-        self:RefreshTracker()
-    end
-    frame.btnCollapse.label:SetTextColor(0.9, 0.9, 0.9)
-
-    -- Show on Map
-    frame.btnShowMap.tooltip = "Open the world map with this quest highlighted."
-    frame.btnShowMap.onClick = function()
-        if QuestMapFrame_OpenToQuestDetails then
-            QuestMapFrame_OpenToQuestDetails(questID)
-        end
-    end
-    frame.btnShowMap.label:SetTextColor(0.9, 0.9, 0.9)
-
-    -- Untrack
     local isWorldQuestTask = quest.isTask
-    local untrackDisabled = isWorldQuestTask
-    frame.btnUntrack.tooltip = untrackDisabled
-        and "World quests are automatically tracked while you are in the area."
-        or "Stop tracking this quest in the tracker."
-    frame.btnUntrack.onClick = function()
-        if untrackDisabled then return end
-        if C_QuestLog and C_QuestLog.RemoveQuestWatch then
-            C_QuestLog.RemoveQuestWatch(questID)
-            self:RefreshTracker()
-        end
-    end
-    frame.btnUntrack.label:SetTextColor(untrackDisabled and 0.5 or 0.9, 0.9, 0.9)
-
-    -- Share
-    local shareDisabled = not (C_QuestLog and C_QuestLog.IsPushableQuest
-        and C_QuestLog.IsPushableQuest(questID) and IsInGroup())
-    frame.btnShare.tooltip = shareDisabled
-        and "Requires a pushable quest and being in a group."
-        or "Share this quest with your party or raid."
-    frame.btnShare.onClick = function()
-        if not shareDisabled and QuestLogPushQuest then
-            QuestLogPushQuest()
-        end
-    end
-    frame.btnShare.label:SetTextColor(shareDisabled and 0.5 or 0.9, 0.9, 0.9)
-
-    -- Abandon
     local isWorldQuest = quest.questType == "worldquest" or quest.questType == "pvpworldquest"
     local isTask = quest.isTask
+
+    local shareDisabled = not (C_QuestLog and C_QuestLog.IsPushableQuest
+        and C_QuestLog.IsPushableQuest(questID) and IsInGroup())
     local abandonDisabled = isWorldQuest or isTask
-    frame.btnAbandon.label:SetText("Abandon Quest")
-    frame.btnAbandon.tooltip = abandonDisabled
-        and "World quests and bonus objectives cannot be abandoned."
-        or "Permanently abandon this quest. You will lose all progress."
-    frame.btnAbandon.onClick = function()
-        if abandonDisabled then return end
-        -- Set the quest as the active quest for abandonment
-        if C_QuestLog.SetSelectedQuest then
-            C_QuestLog.SetSelectedQuest(questID)
-        end
-        -- Use the built-in abandon confirmation
-        if C_QuestLog.SetAbandonQuest then
-            C_QuestLog.SetAbandonQuest()
-        end
-        if StaticPopup_Show then
-            StaticPopup_Show("ABANDON_QUEST", quest.title)
-        end
-    end
-    frame.btnAbandon.label:SetTextColor(abandonDisabled and 0.5 or 0.9, 0.4, 0.4)
 
-    -- Layout buttons vertically
-    local titleH = math.max(24, frame.title:GetStringHeight() + 8)
-    local y = titleH + 2
-    for _, btn in ipairs(frame.buttons) do
-        btn:ClearAllPoints()
-        btn:SetPoint("TOPLEFT", frame.content, "TOPLEFT", 0, -y)
-        y = y + MENU_ROW
-    end
+    local config = {
+        title = quest.title,
+        buttons = {
+            {
+                label = isFocused and "Unfocus" or "Focus",
+                tooltip = isFocused
+                    and "Stop focusing this quest."
+                    or "Focus on this quest. The game will guide you with an on-screen arrow.",
+                onClick = function()
+                    if isFocused then
+                        C_SuperTrack.SetSuperTrackedQuestID(0)
+                    else
+                        C_SuperTrack.SetSuperTrackedQuestID(questID)
+                    end
+                    self:SafeRefreshTracker()
+                end,
+            },
+            {
+                label = isCollapsed and "Expand" or "Collapse",
+                tooltip = isCollapsed
+                    and "Show objectives for this quest."
+                    or "Hide objectives for this quest.",
+                onClick = function()
+                    self:SetQuestCollapsed(questID, not isCollapsed)
+                    self:SafeRefreshTracker()
+                end,
+            },
+            {
+                label = "Show on Map",
+                tooltip = "Open the world map with this quest highlighted.",
+                onClick = function()
+                    if QuestMapFrame_OpenToQuestDetails then
+                        QuestMapFrame_OpenToQuestDetails(questID)
+                    end
+                end,
+            },
+            {
+                label = "Untrack",
+                tooltip = isWorldQuestTask
+                    and "World quests are automatically tracked while you are in the area."
+                    or "Stop tracking this quest in the tracker.",
+                disabled = isWorldQuestTask,
+                onClick = function()
+                    if isWorldQuestTask then return end
+                    if C_QuestLog and C_QuestLog.RemoveQuestWatch then
+                        C_QuestLog.RemoveQuestWatch(questID)
+                        self:SafeRefreshTracker()
+                    end
+                end,
+            },
+            {
+                label = "Share Quest",
+                tooltip = shareDisabled
+                    and "Requires a pushable quest and being in a group."
+                    or "Share this quest with your party or raid.",
+                disabled = shareDisabled,
+                onClick = function()
+                    if not shareDisabled and QuestLogPushQuest then
+                        QuestLogPushQuest()
+                    end
+                end,
+            },
+            {
+                label = "Abandon Quest",
+                tooltip = abandonDisabled
+                    and "World quests and bonus objectives cannot be abandoned."
+                    or "Permanently abandon this quest. You will lose all progress.",
+                disabled = abandonDisabled,
+                color = { r = 0.9, g = 0.4, b = 0.4 },
+                onClick = function()
+                    if abandonDisabled then return end
+                    if C_QuestLog.SetSelectedQuest then
+                        C_QuestLog.SetSelectedQuest(questID)
+                    end
+                    if C_QuestLog.SetAbandonQuest then
+                        C_QuestLog.SetAbandonQuest()
+                    end
+                    if StaticPopup_Show then
+                        StaticPopup_Show("ABANDON_QUEST", quest.title)
+                    end
+                end,
+            },
+        },
+    }
 
-    frame:SetHeight(y + MENU_PAD * 2 + 4)
-    frame:ClearAllPoints()
-    local cursorX, cursorY = GetCursorPosition()
-    local scale = UIParent:GetEffectiveScale()
-    frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cursorX / scale, cursorY / scale)
-    frame:Show()
-    if frame.clickCatcher then
-        frame.clickCatcher:Show()
-    end
+    self._questContextMenu:Show(config)
 end

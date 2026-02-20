@@ -15,54 +15,46 @@ local C_Item = C_Item
 ----------------------------------------------------------------------
 -- Recipe row object pool
 ----------------------------------------------------------------------
-local RECIPE_ITEM_POOL = {}
-local REAGENT_ITEM_POOL = {}
+local reagentItemPool = TTQ:CreateObjectPool(
+  function(parent) return TTQ:CreateReagentItem(parent) end,
+  function(item) item.frame:SetAlpha(1) end
+)
+
+local recipeItemPool = TTQ:CreateObjectPool(
+  function(parent) return TTQ:CreateRecipeItem(parent) end,
+  function(item)
+    if item.reagentItems then
+      for _, ri in ipairs(item.reagentItems) do
+        TTQ:ReleaseReagentItem(ri)
+      end
+      wipe(item.reagentItems)
+    end
+    item.frame:SetScript("OnUpdate", nil)
+  end
+)
 
 ----------------------------------------------------------------------
 -- Acquire / release recipe rows
 ----------------------------------------------------------------------
 function TTQ:AcquireRecipeItem(parent)
-  local item = table.remove(RECIPE_ITEM_POOL)
-  if not item then
-    item = self:CreateRecipeItem(parent)
-  end
-  item.frame:SetParent(parent)
-  item.frame:Show()
+  local item = recipeItemPool:Acquire(parent)
   item.reagentItems = item.reagentItems or {}
   return item
 end
 
 function TTQ:ReleaseRecipeItem(item)
-  if item.reagentItems then
-    for _, ri in ipairs(item.reagentItems) do
-      self:ReleaseReagentItem(ri)
-    end
-    wipe(item.reagentItems)
-  end
-  item.frame:Hide()
-  item.frame:ClearAllPoints()
-  item.frame:SetScript("OnUpdate", nil)
-  table.insert(RECIPE_ITEM_POOL, item)
+  recipeItemPool:Release(item)
 end
 
 ----------------------------------------------------------------------
 -- Acquire / release reagent rows
 ----------------------------------------------------------------------
 function TTQ:AcquireReagentItem(parent)
-  local item = table.remove(REAGENT_ITEM_POOL)
-  if not item then
-    item = self:CreateReagentItem(parent)
-  end
-  item.frame:SetParent(parent)
-  item.frame:Show()
-  return item
+  return reagentItemPool:Acquire(parent)
 end
 
 function TTQ:ReleaseReagentItem(item)
-  item.frame:Hide()
-  item.frame:ClearAllPoints()
-  item.frame:SetAlpha(1)
-  table.insert(REAGENT_ITEM_POOL, item)
+  reagentItemPool:Release(item)
 end
 
 ----------------------------------------------------------------------
@@ -114,12 +106,9 @@ function TTQ:CreateRecipeItem(parent)
 
     if button == "LeftButton" then
       -- Toggle collapse
-      local cq = TTQ:GetSetting("collapsedRecipes") or {}
-      cq = TTQ:DeepCopy(cq)
       local key = "recipe_" .. recipeData.recipeID
-      cq[key] = not cq[key] and true or nil
-      TTQ:SetSetting("collapsedRecipes", cq)
-      TTQ:RefreshTracker()
+      TTQ:ToggleCollapse("collapsedRecipes", key)
+      TTQ:SafeRefreshTracker()
     elseif button == "RightButton" then
       TTQ:ShowRecipeContextMenu(item)
     end
@@ -237,12 +226,8 @@ function TTQ:UpdateRecipeItem(item, recipe, parentWidth)
   local isCollapsed = cr[key] and true or false
 
   -- Font
-  local nameSize = self:GetSetting("questNameFontSize")
-  local nameFont = self:GetResolvedFont("quest")
-  local nameOutline = self:GetSetting("questNameFontOutline")
-  if not pcall(item.name.SetFont, item.name, nameFont, nameSize, nameOutline) then
-    pcall(item.name.SetFont, item.name, "Fonts\\FRIZQT__.TTF", nameSize, nameOutline)
-  end
+  local nameFont, nameSize, nameOutline = self:GetFontSettings("quest")
+  TTQ:SafeSetFont(item.name, nameFont, nameSize, nameOutline)
 
   -- Icon
   if recipe.icon and self:GetSetting("showIcons") then
@@ -255,7 +240,7 @@ function TTQ:UpdateRecipeItem(item, recipe, parentWidth)
   else
     item.icon:Hide()
     item.name:ClearAllPoints()
-    item.name:SetPoint("TOPLEFT", item.frame, "TOPLEFT", RECIPE_ICON_WIDTH + 2, 0)
+    item.name:SetPoint("TOPLEFT", item.frame, "TOPLEFT", RECIPE_ICON_WIDTH + 4, 0)
     item.name:SetPoint("RIGHT", item.frame, "RIGHT", -4, 0)
   end
 
@@ -313,15 +298,9 @@ end
 function TTQ:UpdateReagentItem(item, reagent, showNumbers)
   if not reagent then return end
 
-  local fontSize = self:GetSetting("objectiveFontSize")
-  local fontFace = self:GetResolvedFont("objective")
-  local fontOutline = self:GetSetting("objectiveFontOutline")
-  if not pcall(item.text.SetFont, item.text, fontFace, fontSize, fontOutline) then
-    pcall(item.text.SetFont, item.text, "Fonts\\FRIZQT__.TTF", fontSize, fontOutline)
-  end
-  if not pcall(item.dash.SetFont, item.dash, fontFace, fontSize, fontOutline) then
-    pcall(item.dash.SetFont, item.dash, "Fonts\\FRIZQT__.TTF", fontSize, fontOutline)
-  end
+  local fontFace, fontSize, fontOutline = self:GetFontSettings("objective")
+  TTQ:SafeSetFont(item.text, fontFace, fontSize, fontOutline)
+  TTQ:SafeSetFont(item.dash, fontFace, fontSize, fontOutline)
 
   local have = reagent.have or 0
   local needed = reagent.needed or 1
@@ -608,177 +587,59 @@ end
 ----------------------------------------------------------------------
 -- Recipe context menu
 ----------------------------------------------------------------------
-function TTQ:CreateRecipeContextMenuFrame()
-  if self.RecipeContextMenuFrame then return end
-
-  local MENU_ROW = 22
-  local MENU_PAD = 6
-  local MENU_WIDTH = 200
-
-  local frame = CreateFrame("Frame", "TTQRecipeContextMenu", UIParent, "BackdropTemplate")
-  frame:SetWidth(MENU_WIDTH + MENU_PAD * 2)
-  frame:SetClampedToScreen(true)
-  frame:SetFrameStrata("TOOLTIP")
-  frame:SetFrameLevel(100)
-  frame:SetBackdrop({
-    bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile     = true,
-    tileSize = 16,
-    edgeSize = 14,
-    insets   = { left = 4, right = 4, top = 4, bottom = 4 },
-  })
-  frame:SetBackdropColor(0.06, 0.06, 0.08, 0.96)
-  frame:SetBackdropBorderColor(0.25, 0.28, 0.35, 0.7)
-  frame:Hide()
-
-  -- Click-away catcher
-  local catcher = CreateFrame("Button", nil, UIParent)
-  catcher:SetFrameStrata("TOOLTIP")
-  catcher:SetFrameLevel(99)
-  catcher:SetAllPoints(UIParent)
-  catcher:EnableMouse(true)
-  catcher:RegisterForClicks("AnyUp")
-  catcher:Hide()
-  catcher:SetScript("OnClick", function()
-    catcher:Hide()
-    TTQ:HideRecipeContextMenu()
-  end)
-  frame.clickCatcher = catcher
-
-  local content = CreateFrame("Frame", nil, frame)
-  content:SetPoint("TOPLEFT", frame, "TOPLEFT", MENU_PAD, -MENU_PAD)
-  content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -MENU_PAD, MENU_PAD)
-  content:SetFrameLevel(frame:GetFrameLevel() + 1)
-  frame.content = content
-
-  -- Title
-  local title = TTQ:CreateText(content, 13, { r = 1, g = 0.82, b = 0 }, "LEFT")
-  title:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
-  title:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, 0)
-  title:SetWordWrap(true)
-  title:SetNonSpaceWrap(false)
-  frame.title = title
-
-  -- Menu button factory
-  local function makeBtn(label)
-    local btn = CreateFrame("Button", nil, content)
-    btn:SetHeight(MENU_ROW)
-    btn:SetWidth(MENU_WIDTH)
-    btn:SetFrameLevel(content:GetFrameLevel() + 1)
-    local hl = btn:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.06)
-    local text = TTQ:CreateText(btn, 12, { r = 0.9, g = 0.9, b = 0.9 }, "LEFT")
-    text:SetPoint("LEFT", btn, "LEFT", 4, 0)
-    text:SetText(label)
-    btn.label = text
-    btn:SetScript("OnClick", function()
-      if btn.onClick then btn.onClick() end
-      TTQ:HideRecipeContextMenu()
-    end)
-    btn:SetScript("OnEnter", function(self)
-      if btn.tooltip then
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText(btn.tooltip, 0.9, 0.9, 0.9)
-        GameTooltip:Show()
-      end
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    return btn
-  end
-
-  frame.btnOpenRecipe = makeBtn("Open Recipe")
-  frame.btnSearchAH   = makeBtn("Search Auction House")
-  frame.btnUntrack    = makeBtn("Untrack Recipe")
-
-  frame.buttons       = { frame.btnOpenRecipe, frame.btnSearchAH, frame.btnUntrack }
-
-  frame:SetScript("OnHide", function()
-    if frame.clickCatcher and frame.clickCatcher:IsShown() then
-      frame.clickCatcher:Hide()
-    end
-  end)
-
-  self.RecipeContextMenuFrame = frame
-end
-
-function TTQ:HideRecipeContextMenu()
-  if self.RecipeContextMenuFrame then
-    self.RecipeContextMenuFrame:Hide()
-  end
-  if self.RecipeContextMenuFrame and self.RecipeContextMenuFrame.clickCatcher then
-    self.RecipeContextMenuFrame.clickCatcher:Hide()
-  end
-end
-
 function TTQ:ShowRecipeContextMenu(item)
   local recipe = item.recipeData
   if not recipe then return end
 
-  self:CreateRecipeContextMenuFrame()
-  local frame = self.RecipeContextMenuFrame
-  local MENU_ROW = 22
-  local MENU_PAD = 6
-
-  frame.title:SetText(recipe.name)
-  frame.title:SetHeight(math.max(20, frame.title:GetStringHeight() + 4))
+  if not self._recipeContextMenu then
+    self._recipeContextMenu = self:CreateContextMenu("TTQRecipeContextMenu")
+  end
 
   local recipeID = recipe.recipeID
-
-  -- Open Recipe
-  frame.btnOpenRecipe.tooltip = "Open this recipe in the profession window."
-  frame.btnOpenRecipe.onClick = function()
-    if C_TradeSkillUI and C_TradeSkillUI.OpenRecipe then
-      C_TradeSkillUI.OpenRecipe(recipeID)
-    end
-  end
-  frame.btnOpenRecipe.label:SetTextColor(0.9, 0.9, 0.9)
-
-  -- Search AH
   local ahAvailable = self:IsAuctionatorAvailable()
   local allReady = recipe.allReagentsReady
   local ahDisabled = not ahAvailable or allReady
-  frame.btnSearchAH.tooltip = not ahAvailable
-      and "Auctionator addon is required for AH search."
-      or allReady
-      and "All reagents are already collected."
-      or "Search the Auction House for missing reagents."
-  frame.btnSearchAH.onClick = function()
-    if not ahDisabled then
-      TTQ:SearchAuctionatorForRecipe(recipe)
-    end
-  end
-  frame.btnSearchAH.label:SetTextColor(ahDisabled and 0.5 or 0.9, 0.9, 0.9)
 
-  -- Untrack
-  frame.btnUntrack.tooltip = "Stop tracking this recipe."
-  frame.btnUntrack.onClick = function()
-    if C_TradeSkillUI and C_TradeSkillUI.SetRecipeTracked then
-      C_TradeSkillUI.SetRecipeTracked(recipeID, false, recipe.isRecraft)
-    end
-    TTQ:RefreshTracker()
-  end
-  frame.btnUntrack.label:SetTextColor(0.9, 0.9, 0.9)
+  local config = {
+    title = recipe.name,
+    buttons = {
+      {
+        label = "Open Recipe",
+        tooltip = "Open this recipe in the profession window.",
+        onClick = function()
+          if C_TradeSkillUI and C_TradeSkillUI.OpenRecipe then
+            C_TradeSkillUI.OpenRecipe(recipeID)
+          end
+        end,
+      },
+      {
+        label = "Search Auction House",
+        tooltip = not ahAvailable
+            and "Auctionator addon is required for AH search."
+            or allReady
+            and "All reagents are already collected."
+            or "Search the Auction House for missing reagents.",
+        disabled = ahDisabled,
+        onClick = function()
+          if not ahDisabled then
+            TTQ:SearchAuctionatorForRecipe(recipe)
+          end
+        end,
+      },
+      {
+        label = "Untrack Recipe",
+        tooltip = "Stop tracking this recipe.",
+        onClick = function()
+          if C_TradeSkillUI and C_TradeSkillUI.SetRecipeTracked then
+            C_TradeSkillUI.SetRecipeTracked(recipeID, false, recipe.isRecraft)
+          end
+          TTQ:SafeRefreshTracker()
+        end,
+      },
+    },
+  }
 
-  -- Layout buttons
-  local titleH = math.max(24, frame.title:GetStringHeight() + 8)
-  local y = titleH + 2
-  for _, btn in ipairs(frame.buttons) do
-    btn:ClearAllPoints()
-    btn:SetPoint("TOPLEFT", frame.content, "TOPLEFT", 0, -y)
-    y = y + MENU_ROW
-  end
-
-  frame:SetHeight(y + MENU_PAD * 2 + 4)
-  frame:ClearAllPoints()
-  local cursorX, cursorY = GetCursorPosition()
-  local scale = UIParent:GetEffectiveScale()
-  frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cursorX / scale, cursorY / scale)
-  frame:Show()
-  if frame.clickCatcher then
-    frame.clickCatcher:Show()
-  end
+  self._recipeContextMenu:Show(config)
 end
 
 ----------------------------------------------------------------------
@@ -871,13 +732,8 @@ function TTQ:RenderRecipeBlock(parentFrame, width, yOffset)
   hf:Show()
 
   -- Style header
-  local headerSize = self:GetSetting("headerFontSize")
-  local headerFont = self:GetResolvedFont("header")
-  local headerOutline = self:GetSetting("headerFontOutline")
-  local headerColor = self:GetSetting("headerColor")
-  if not pcall(self._recipeHeaderText.SetFont, self._recipeHeaderText, headerFont, headerSize, headerOutline) then
-    pcall(self._recipeHeaderText.SetFont, self._recipeHeaderText, "Fonts\\FRIZQT__.TTF", headerSize, headerOutline)
-  end
+  local headerFont, headerSize, headerOutline, headerColor = self:GetFontSettings("header")
+  TTQ:SafeSetFont(self._recipeHeaderText, headerFont, headerSize, headerOutline)
   self._recipeHeaderText:SetTextColor(headerColor.r, headerColor.g, headerColor.b)
   self._recipeHeaderText:SetText("Recipes")
 
@@ -894,6 +750,7 @@ function TTQ:RenderRecipeBlock(parentFrame, width, yOffset)
     self._recipeHeaderIcon:SetDesaturated(false)
     self._recipeHeaderIcon:SetVertexColor(1, 1, 1)
     self._recipeHeaderIcon:Show()
+    self._recipeHeaderText:SetPoint("LEFT", self._recipeHeaderIcon, "RIGHT", 5, 0)
   else
     self._recipeHeaderIcon:Hide()
     self._recipeHeaderText:SetPoint("LEFT", hf, "LEFT", 0, 0)
@@ -911,9 +768,7 @@ function TTQ:RenderRecipeBlock(parentFrame, width, yOffset)
   if self:GetSetting("showHeaderCount") then
     self._recipeHeaderCount:SetText(numReady .. "/" .. #recipes)
     local countSize = math.max(9, headerSize - 2)
-    if not pcall(self._recipeHeaderCount.SetFont, self._recipeHeaderCount, headerFont, countSize, headerOutline) then
-      pcall(self._recipeHeaderCount.SetFont, self._recipeHeaderCount, "Fonts\\FRIZQT__.TTF", countSize, headerOutline)
-    end
+    TTQ:SafeSetFont(self._recipeHeaderCount, headerFont, countSize, headerOutline)
     if numReady == #recipes and #recipes > 0 then
       local ec = self:GetSetting("objectiveCompleteColor")
       self._recipeHeaderCount:SetTextColor(ec.r, ec.g, ec.b)
@@ -927,23 +782,14 @@ function TTQ:RenderRecipeBlock(parentFrame, width, yOffset)
 
   -- Collapse indicator
   self._recipeHeaderCollapseInd:SetText(isRecipeSectionCollapsed and "+" or "-")
-  local indFont = self:GetResolvedFont("quest")
-  local indSize = self:GetSetting("questNameFontSize")
-  local indOutline = self:GetSetting("questNameFontOutline")
-  if not pcall(self._recipeHeaderCollapseInd.SetFont, self._recipeHeaderCollapseInd, indFont, indSize, indOutline) then
-    pcall(self._recipeHeaderCollapseInd.SetFont, self._recipeHeaderCollapseInd, "Fonts\\FRIZQT__.TTF", indSize,
-      indOutline)
-  end
+  local indFont, indSize, indOutline = self:GetFontSettings("quest")
+  TTQ:SafeSetFont(self._recipeHeaderCollapseInd, indFont, indSize, indOutline)
   self._recipeHeaderCollapseInd:SetTextColor(1, 1, 1)
 
   -- Click: toggle section collapse
   hf:SetScript("OnClick", function()
-    local cg = TTQ:GetSetting("collapsedGroups")
-    if type(cg) ~= "table" then cg = {} end
-    cg = TTQ:DeepCopy(cg)
-    cg["_recipes"] = not cg["_recipes"] and true or false
-    TTQ:SetSetting("collapsedGroups", cg)
-    TTQ:RefreshTracker()
+    TTQ:ToggleCollapse("collapsedGroups", "_recipes")
+    TTQ:SafeRefreshTracker()
   end)
 
   hf:SetScript("OnEnter", function(btn)

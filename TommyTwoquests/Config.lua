@@ -38,7 +38,8 @@ TTQ.Defaults = {
     headerColor              = { r = 1.0, g = 0.82, b = 0.0 },
     questNameColor           = { r = 0.95, g = 0.95, b = 0.95 },
     questHoverColor          = { r = 1.0, g = 1.0, b = 1.0 },
-    superTrackedColor        = { r = 1.0, g = 0.82, b = 0.0 },
+    focusColor               = { r = 1.0, g = 0.82, b = 0.0 },
+    superTrackedColor        = { r = 1.0, g = 0.82, b = 0.0 }, -- deprecated alias for focusColor
     objectiveCompleteColor   = { r = 0.20, g = 0.80, b = 0.40 },
     objectiveIncompleteColor = { r = 0.85, g = 0.85, b = 0.85 },
 
@@ -64,12 +65,7 @@ TTQ.Defaults = {
     showQuestLevel           = false,
     showHeaderCount          = true,
     showTrackerHeader        = true,
-    collapseCompleted        = true,
-    clickToFocus             = true,
-    clickToSuperTrack        = true,
     rightClickMenu           = true,
-    fadeWhenNotHovered       = false,
-    fadeAlpha                = 0.5,
     hideInCombat             = false,
 
     -- Background
@@ -176,6 +172,34 @@ function TTQ:GetResolvedFont(which)
         raw = self:GetSetting("globalFont") or self.Defaults.globalFont
     end
     return self:ResolveFontPath(raw)
+end
+
+----------------------------------------------------------------------
+-- Get all font settings for a category in one call
+-- which: "header" | "quest" | "objective"
+-- Returns: fontPath, fontSize, fontOutline, colorTable
+----------------------------------------------------------------------
+function TTQ:GetFontSettings(which)
+    local face = self:GetResolvedFont(which)
+    local size, outline, color
+    if which == "header" then
+        size    = self:GetSetting("headerFontSize")
+        outline = self:GetSetting("headerFontOutline")
+        color   = self:GetSetting("headerColor")
+    elseif which == "quest" then
+        size    = self:GetSetting("questNameFontSize")
+        outline = self:GetSetting("questNameFontOutline")
+        color   = self:GetSetting("questNameColor")
+    elseif which == "objective" then
+        size    = self:GetSetting("objectiveFontSize")
+        outline = self:GetSetting("objectiveFontOutline")
+        color   = self:GetSetting("objectiveIncompleteColor")
+    else
+        size    = self:GetSetting("headerFontSize")
+        outline = self:GetSetting("headerFontOutline")
+        color   = self:GetSetting("headerColor")
+    end
+    return face, size, outline, color
 end
 
 function TTQ:SetSetting(key, value)

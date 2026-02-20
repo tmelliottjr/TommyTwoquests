@@ -5,29 +5,27 @@
 local AddonName, TTQ = ...
 local table, string, pcall, CreateFrame = table, string, pcall, CreateFrame
 
-local OBJECTIVE_POOL = {}
 local ROW_HEIGHT = 16
+
+-- Object pool for objective rows
+local objectivePool = TTQ:CreateObjectPool(
+    function(parent) return TTQ:CreateObjectiveItem(parent) end,
+    function(item)
+        item.frame:SetAlpha(1)
+        if item.checkIcon then item.checkIcon:Hide() end
+        if item.dash then item.dash:Show() end
+    end
+)
 
 ----------------------------------------------------------------------
 -- Create or reuse an objective row
 ----------------------------------------------------------------------
 function TTQ:AcquireObjectiveItem(parent)
-    local item = table.remove(OBJECTIVE_POOL)
-    if not item then
-        item = self:CreateObjectiveItem(parent)
-    end
-    item.frame:SetParent(parent)
-    item.frame:Show()
-    return item
+    return objectivePool:Acquire(parent)
 end
 
 function TTQ:ReleaseObjectiveItem(item)
-    item.frame:SetAlpha(1) -- reset alpha so pooled items aren't invisible
-    if item.checkIcon then item.checkIcon:Hide() end
-    if item.dash then item.dash:Show() end
-    item.frame:Hide()
-    item.frame:ClearAllPoints()
-    table.insert(OBJECTIVE_POOL, item)
+    objectivePool:Release(item)
 end
 
 ----------------------------------------------------------------------
@@ -84,15 +82,9 @@ end
 function TTQ:UpdateObjectiveItem(item, objective, showNumbers)
     if not objective then return end
 
-    local fontSize = self:GetSetting("objectiveFontSize")
-    local fontFace = self:GetResolvedFont("objective")
-    local fontOutline = self:GetSetting("objectiveFontOutline")
-    if not pcall(item.text.SetFont, item.text, fontFace, fontSize, fontOutline) then
-        pcall(item.text.SetFont, item.text, "Fonts\\FRIZQT__.TTF", fontSize, fontOutline)
-    end
-    if not pcall(item.dash.SetFont, item.dash, fontFace, fontSize, fontOutline) then
-        pcall(item.dash.SetFont, item.dash, "Fonts\\FRIZQT__.TTF", fontSize, fontOutline)
-    end
+    local fontFace, fontSize, fontOutline = self:GetFontSettings("objective")
+    self:SafeSetFont(item.text, fontFace, fontSize, fontOutline)
+    self:SafeSetFont(item.dash, fontFace, fontSize, fontOutline)
 
     if objective.finished then
         local color = self:GetSetting("objectiveCompleteColor")

@@ -8,7 +8,9 @@ local CreateFrame, C_Timer = CreateFrame, C_Timer
 local strtrim, SlashCmdList, Settings = strtrim, SlashCmdList, Settings
 _G.TommyTwoquests = TTQ
 
-TTQ.Version = "1.0.0"
+-- Read version from .toc metadata (single source of truth)
+TTQ.Version = C_AddOns and C_AddOns.GetAddOnMetadata
+    and C_AddOns.GetAddOnMetadata(AddonName, "Version") or "1.2.0"
 TTQ.Callbacks = {}
 
 ----------------------------------------------------------------------
@@ -88,40 +90,59 @@ TTQ:RegisterEvent("ADDON_LOADED", function(event, addon)
 end)
 
 ----------------------------------------------------------------------
+-- Versioned migrations — run once per schema bump
+-- Each migration receives the DB table and mutates it in place.
+----------------------------------------------------------------------
+TTQ.Migrations = {
+    -- v1: Migrate font paths → names
+    [1] = function(db)
+        if TTQ.MigrateFontSettingsToNames then
+            TTQ:MigrateFontSettingsToNames()
+        end
+    end,
+    -- v2: Migrate grey objectiveCompleteColor → emerald
+    [2] = function(db)
+        if db.objectiveCompleteColor then
+            local c = db.objectiveCompleteColor
+            if c.r == 0.5 and c.g == 0.5 and c.b == 0.5 then
+                db.objectiveCompleteColor = TTQ:DeepCopy(TTQ.Defaults.objectiveCompleteColor)
+            end
+        end
+    end,
+    -- v3: Migrate superTrackedColor → focusColor, clickToSuperTrack → clickToFocus
+    [3] = function(db)
+        local oldST = db.superTrackedColor
+        if oldST and oldST.r == 0.4 and oldST.g == 0.8 and oldST.b == 1.0 then
+            db.superTrackedColor = { r = 1.0, g = 0.82, b = 0.0 }
+        end
+        local fc = db.focusColor
+        if fc and fc.r == 0.4 and fc.g == 0.8 and fc.b == 1.0 then
+            db.focusColor = { r = 1.0, g = 0.82, b = 0.0 }
+        end
+        if not db.focusColor and db.superTrackedColor then
+            db.focusColor = TTQ:DeepCopy(db.superTrackedColor)
+        end
+        if db.clickToFocus == nil and db.clickToSuperTrack ~= nil then
+            db.clickToFocus = db.clickToSuperTrack
+        end
+    end,
+}
+
+function TTQ:RunMigrations()
+    if not TommyTwoquestsDB then return end
+    local v = TommyTwoquestsDB._schemaVersion or 0
+    for i = v + 1, #self.Migrations do
+        self.Migrations[i](TommyTwoquestsDB)
+    end
+    TommyTwoquestsDB._schemaVersion = #self.Migrations
+end
+
+----------------------------------------------------------------------
 -- Ready handler — called once DB is loaded
 ----------------------------------------------------------------------
 function TTQ:OnReady()
-    -- Migrate saved font paths to names so dropdowns show "Friz Quadrata TT" not paths
-    if self.MigrateFontSettingsToNames then
-        self:MigrateFontSettingsToNames()
-    end
-
-    -- Migrate old grey objectiveCompleteColor to new emerald default
-    if TommyTwoquestsDB and TommyTwoquestsDB.objectiveCompleteColor then
-        local c = TommyTwoquestsDB.objectiveCompleteColor
-        if c.r == 0.5 and c.g == 0.5 and c.b == 0.5 then
-            TommyTwoquestsDB.objectiveCompleteColor = self:DeepCopy(self.Defaults.objectiveCompleteColor)
-        end
-    end
-
-    -- Migrate superTrackedColor → focusColor, clickToSuperTrack → clickToFocus
-    if TommyTwoquestsDB then
-        -- Migrate old blue superTrackedColor default to quest yellow focusColor
-        local oldST = TommyTwoquestsDB.superTrackedColor
-        if oldST and oldST.r == 0.4 and oldST.g == 0.8 and oldST.b == 1.0 then
-            TommyTwoquestsDB.superTrackedColor = { r = 1.0, g = 0.82, b = 0.0 }
-        end
-        local fc = TommyTwoquestsDB.focusColor
-        if fc and fc.r == 0.4 and fc.g == 0.8 and fc.b == 1.0 then
-            TommyTwoquestsDB.focusColor = { r = 1.0, g = 0.82, b = 0.0 }
-        end
-        if not TommyTwoquestsDB.focusColor and TommyTwoquestsDB.superTrackedColor then
-            TommyTwoquestsDB.focusColor = self:DeepCopy(TommyTwoquestsDB.superTrackedColor)
-        end
-        if TommyTwoquestsDB.clickToFocus == nil and TommyTwoquestsDB.clickToSuperTrack ~= nil then
-            TommyTwoquestsDB.clickToFocus = TommyTwoquestsDB.clickToSuperTrack
-        end
-    end
+    -- Run versioned data migrations
+    self:RunMigrations()
 
     -- Initialize the tracker (created in QuestTracker.lua)
     if self.InitTracker then
@@ -151,7 +172,7 @@ SlashCmdList["TTQ"] = function(msg)
     msg = strtrim(msg):lower()
     if msg == "reset" then
         TTQ:ResetDefaults()
-        if TTQ.Tracker then TTQ:RefreshTracker() end
+        if TTQ.Tracker then TTQ:SafeRefreshTracker() end
         print("|cff00ccffTommyTwoquests|r: Settings reset to defaults.")
     elseif msg == "toggle" then
         if TTQ.Tracker then
@@ -160,7 +181,7 @@ SlashCmdList["TTQ"] = function(msg)
     elseif msg == "zone" then
         local current = TTQ:GetSetting("filterByCurrentZone")
         TTQ:SetSetting("filterByCurrentZone", not current)
-        if TTQ.Tracker then TTQ:RefreshTracker() end
+        if TTQ.Tracker then TTQ:SafeRefreshTracker() end
         print("|cff00ccffTommyTwoquests|r: Zone filter " .. (not current and "enabled" or "disabled") .. ".")
     else
         TTQ:OpenSettings()

@@ -4,7 +4,7 @@
 ----------------------------------------------------------------------
 local AddonName, TTQ = ...
 local table, ipairs, pairs, string, type = table, ipairs, pairs, string, type
-local C_QuestLog = C_QuestLog
+local C_QuestLog, C_Timer, pcall = C_QuestLog, C_Timer, pcall
 
 ----------------------------------------------------------------------
 -- Font list: use LibSharedMedia-3.0 (same as most addons) when available
@@ -42,9 +42,6 @@ function TTQ:GetFontList()
     end
     return self.AvailableFontsFallback
 end
-
--- Keep AvailableFonts as alias for backward compatibility (points to fallback)
-TTQ.AvailableFonts = TTQ.AvailableFontsFallback
 
 TTQ.FontOutlines = {
     { name = "None",    value = "" },
@@ -116,14 +113,7 @@ function TTQ:GetQuestIconAtlas(quest)
     -- Use turnin/complete icon only when quest is actually complete or focused
     local useTurnin = quest.isSuperTracked
     if quest.isComplete then
-        -- For side quests, only show complete icon when the game says it's complete (avoids false complete)
-        if qtype == "normal" then
-            if C_QuestLog and C_QuestLog.IsComplete and C_QuestLog.IsComplete(quest.questID) then
-                useTurnin = true
-            end
-        else
-            useTurnin = true
-        end
+        useTurnin = true
     end
     -- Important: "Active Important" (yellow-gold chevron) when tracked
     if qtype == "important" then
@@ -266,18 +256,89 @@ function TTQ:DeepMerge(dst, src)
 end
 
 ----------------------------------------------------------------------
--- Show context menu using EasyMenu (reliable fallback for filter/quest menus)
+-- Safe font setter — applies font with pcall fallback to default
 ----------------------------------------------------------------------
-function TTQ:ShowEasyMenu(menuList, anchorFrame, anchorPoint, x, y)
-    if not anchorFrame then anchorFrame = UIParent end
-    if not anchorPoint then anchorPoint = "cursor" end
-    x = x or 0
-    y = y or 0
-    if anchorPoint == "cursor" then
-        x = 6
-        y = -6
+function TTQ:SafeSetFont(fontString, face, size, outline)
+    if not fontString then return end
+    if not pcall(fontString.SetFont, fontString, face, size, outline or "") then
+        pcall(fontString.SetFont, fontString, "Fonts\\FRIZQT__.TTF", size, outline or "")
     end
-    if EasyMenu then
-        EasyMenu(menuList, anchorFrame, anchorFrame, x, y, "MENU")
+end
+
+----------------------------------------------------------------------
+-- Throttled tracker refresh — coalesces rapid event bursts
+----------------------------------------------------------------------
+function TTQ:ScheduleRefresh()
+    if not self._refreshTimer then
+        self._refreshTimer = C_Timer.NewTimer(0.1, function()
+            self._refreshTimer = nil
+            if self.RefreshTracker then
+                self:SafeRefreshTracker()
+            end
+        end)
     end
+end
+
+----------------------------------------------------------------------
+-- Error-boundary wrapper for RefreshTracker
+----------------------------------------------------------------------
+function TTQ:SafeRefreshTracker()
+    local ok, err = xpcall(self.RefreshTracker, function(e)
+        return e .. "\n" .. (debugstack and debugstack() or "")
+    end, self)
+    if not ok then
+        if not self._lastRefreshError or self._lastRefreshError ~= err then
+            self._lastRefreshError = err
+            print("|cffff0000TommyTwoquests error:|r " .. tostring(err))
+        end
+    end
+end
+
+----------------------------------------------------------------------
+-- Toggle a collapsed-state entry in a saved table setting
+----------------------------------------------------------------------
+function TTQ:ToggleCollapse(settingKey, id)
+    local tbl = self:GetSetting(settingKey)
+    if type(tbl) ~= "table" then tbl = {} end
+    tbl = self:DeepCopy(tbl)
+    if tbl[id] then
+        tbl[id] = nil
+    else
+        tbl[id] = true
+    end
+    self:SetSetting(settingKey, tbl)
+end
+
+----------------------------------------------------------------------
+-- Generic object pool factory
+-- createFn(parent) → new object (must have .frame field)
+-- resetFn(obj)     → clean up object before returning to pool
+----------------------------------------------------------------------
+function TTQ:CreateObjectPool(createFn, resetFn)
+    local pool = {}
+    local poolObj = {}
+
+    function poolObj:Acquire(parent)
+        local item = table.remove(pool)
+        if not item then
+            item = createFn(parent)
+        else
+            if item.frame then
+                item.frame:SetParent(parent)
+                item.frame:Show()
+            end
+        end
+        return item
+    end
+
+    function poolObj:Release(item)
+        if resetFn then resetFn(item) end
+        if item.frame then
+            item.frame:Hide()
+            item.frame:ClearAllPoints()
+        end
+        table.insert(pool, item)
+    end
+
+    return poolObj
 end

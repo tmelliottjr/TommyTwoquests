@@ -9,6 +9,7 @@
 
 Utils.lua
 Config.lua
+ContextMenu.lua
 Core.lua
 QuestData.lua
 Filters.lua

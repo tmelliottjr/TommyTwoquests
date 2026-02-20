@@ -36,6 +36,8 @@ function TTQ:FilterAndGroupQuests(quests)
     local filtered = {}
     local zoneQuestIDs = nil
     local groupByZone = self:GetSetting("groupCurrentZoneQuests")
+    -- Zone membership lookup (avoids mutating quest data objects)
+    local inZoneLookup = {}
 
     -- Zone filter: build zone lookup if enabled (or if zone grouping is on)
     if self:GetSetting("filterByCurrentZone") or groupByZone then
@@ -61,16 +63,9 @@ function TTQ:FilterAndGroupQuests(quests)
             end
         end
 
-        -- Collapse completed
-        if pass and self:GetSetting("collapseCompleted") and quest.isComplete then
-            -- Still show, but they'll be rendered differently
-        end
-
-        -- Tag whether this quest is in the current zone (for grouping)
+        -- Track whether this quest is in the current zone (separate lookup, no mutation)
         if pass and groupByZone and zoneQuestIDs then
-            quest._isInCurrentZone = zoneQuestIDs[quest.questID] and true or false
-        else
-            quest._isInCurrentZone = false
+            inZoneLookup[quest.questID] = zoneQuestIDs[quest.questID] and true or false
         end
 
         if pass then
@@ -119,7 +114,7 @@ function TTQ:FilterAndGroupQuests(quests)
 
         -- Split filtered quests into zone group and remaining
         for _, quest in ipairs(filtered) do
-            if quest._isInCurrentZone then
+            if inZoneLookup[quest.questID] then
                 table.insert(zoneGroup.quests, quest)
             else
                 addToTypeGroup(quest)
