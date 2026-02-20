@@ -1216,7 +1216,8 @@ local function BuildOptionCategories()
                 {
                     type = "toggle",
                     name = "Show tracked recipes",
-                    desc = "Display tracked profession recipes with reagent progress. Right-click a recipe to search the Auction House (requires Auctionator).",
+                    desc =
+                    "Display tracked profession recipes with reagent progress. Right-click a recipe to search the Auction House (requires Auctionator).",
                     dbKey = "showRecipes",
                     get = function()
                         return
