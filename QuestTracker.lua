@@ -699,6 +699,9 @@ do
         if not TTQ.Tracker then return end
         if not TTQ.GetSetting then return end
         if not TTQ:GetSetting("hideInCombat") then return end
+        -- Never hide the tracker during an active M+ run — the timer
+        -- is critical information that must always be visible.
+        if TTQ.IsMythicPlusActive and TTQ:IsMythicPlusActive() then return end
         if evt == "PLAYER_REGEN_DISABLED" then
             TTQ.Tracker:Hide()
         elseif evt == "PLAYER_REGEN_ENABLED" then

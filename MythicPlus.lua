@@ -103,6 +103,9 @@ function TTQ:GetMythicPlusData()
     elapsed       = 0,  -- seconds elapsed
     remaining     = 0,  -- seconds remaining (can be negative)
     isOverTime    = false,
+    runCompleted  = false,      -- true when CHALLENGE_MODE_COMPLETED fired
+    completedOnTime = nil,      -- boolean from CompletionInfo API
+    completionChest = 0,        -- 1/2/3 chest tier earned (0 if over time)
     chestTimers   = {}, -- { {label, limit, remaining, active} ... }
     deaths        = 0,
     deathPenalty  = 0,  -- seconds lost to deaths
@@ -122,6 +125,11 @@ function TTQ:GetMythicPlusData()
     local name, _, timeLimit = C_ChallengeMode.GetMapUIInfo(mapID)
     data.dungeonName = name or "Mythic+"
     data.timeLimit = timeLimit or 0
+  elseif mpCachedData then
+    -- API returns nil after completion — use cached values
+    data.mapID = mpCachedData.mapID
+    data.dungeonName = mpCachedData.dungeonName
+    data.timeLimit = mpCachedData.timeLimit
   end
 
   -- Keystone level and affixes
@@ -145,29 +153,22 @@ function TTQ:GetMythicPlusData()
         end
       end
     end
-    -- Also pull from C_MythicPlus.GetCurrentAffixes() for seasonal/weekly affixes
-    -- that may not be included in GetActiveKeystoneInfo
-    if C_MythicPlus and C_MythicPlus.GetCurrentAffixes then
-      local currentAffixes = C_MythicPlus.GetCurrentAffixes()
-      if currentAffixes then
-        for _, affixInfo in ipairs(currentAffixes) do
-          local affixID = affixInfo.id
-          if affixID and not seenAffixes[affixID] then
-            seenAffixes[affixID] = true
-            local affixName, affixDesc, affixIcon = C_ChallengeMode.GetAffixInfo(affixID)
-            if affixName then
-              data.affixes[#data.affixes + 1] = {
-                id = affixID,
-                name = affixName,
-                description = affixDesc or "",
-                icon = affixIcon,
-              }
-            end
-          end
-        end
-      end
-    end
+    -- NOTE: GetActiveKeystoneInfo already returns only the affixes relevant
+    -- to the current key level. Do NOT supplement with
+    -- C_MythicPlus.GetCurrentAffixes() which returns ALL weekly affixes
+    -- regardless of key level (e.g. showing +14 affixes on a +7 key).
   end
+
+  -- Fallback: if keystone/affix APIs returned nothing (e.g. after completion),
+  -- use the last cached values so the display doesn't go blank.
+  if (data.keystoneLevel == 0 or #data.affixes == 0) and mpCachedData then
+    if data.keystoneLevel == 0 then data.keystoneLevel = mpCachedData.keystoneLevel end
+    if #data.affixes == 0 then data.affixes = mpCachedData.affixes end
+  end
+
+  -- Carry completion flags into data
+  data.runCompleted = mpRunCompleted
+  data.completedOnTime = mpCompletedOnTime
 
   -- Timer: if run is completed, use frozen completion time
   if mpRunCompleted and mpCompletionTime then
@@ -203,7 +204,25 @@ function TTQ:GetMythicPlusData()
   end -- close the else from "if mpRunCompleted"
 
   data.remaining = data.timeLimit - data.elapsed
-  data.isOverTime = data.remaining < 0
+  -- Use the authoritative completedOnTime flag when available;
+  -- fall back to elapsed vs timeLimit comparison otherwise.
+  if mpRunCompleted and mpCompletedOnTime ~= nil then
+    data.isOverTime = not mpCompletedOnTime
+  else
+    data.isOverTime = data.remaining < 0
+  end
+
+  -- Determine which chest tier was earned on completion
+  if mpRunCompleted and not data.isOverTime then
+    for i = 1, #MP.CHEST_THRESHOLDS do
+      local limit = data.timeLimit * MP.CHEST_THRESHOLDS[i]
+      if data.elapsed <= limit then
+        data.completionChest = 3 - i + 1 -- +3, +2, +1
+        break
+      end
+    end
+    if data.completionChest == 0 then data.completionChest = 1 end
+  end
 
   -- Chest tier timers
   for i, pct in ipairs(MP.CHEST_THRESHOLDS) do
@@ -312,6 +331,37 @@ function TTQ:GetMythicPlusData()
     data.bossesTotal = #data.bosses
   end
 
+  -- Fallback: if scenario APIs returned no boss/forces data (e.g. after
+  -- completion), restore from the last cached snapshot so the display
+  -- doesn't go blank.
+  if mpCachedData and #data.bosses == 0 and data.enemyTotal == 0 then
+    data.bosses = mpCachedData.bosses
+    data.bossesKilled = mpCachedData.bossesKilled
+    data.bossesTotal = mpCachedData.bossesTotal
+    data.enemyForces = mpCachedData.enemyForces
+    data.enemyTotal = mpCachedData.enemyTotal
+    data.enemyPct = mpCachedData.enemyPct
+    data.enemyComplete = mpCachedData.enemyComplete
+    -- On completion, mark all bosses as completed and forces at 100%
+    if mpRunCompleted then
+      for _, boss in ipairs(data.bosses) do
+        boss.completed = true
+      end
+      data.bossesKilled = data.bossesTotal
+      data.enemyComplete = true
+      data.enemyPct = 100
+      if data.enemyTotal > 0 then
+        data.enemyForces = data.enemyTotal
+      end
+    end
+  end
+
+  -- Cache this data snapshot for use after completion (only when we
+  -- have meaningful content — skip caching empty/fallback-only tables).
+  if data.dungeonName ~= "" and (data.bossesTotal > 0 or data.enemyTotal > 0) then
+    mpCachedData = data
+  end
+
   return data
 end
 
@@ -326,6 +376,27 @@ local function FormatTime(seconds)
   local str = string.format("%d:%02d", m, s)
   if negative then str = "-" .. str end
   return str
+end
+
+----------------------------------------------------------------------
+-- Get the timer remaining label text and color for the current state.
+-- Returns (text, color) where color is an {r,g,b} table.
+----------------------------------------------------------------------
+local function GetTimerRemainingInfo(data)
+  if data.runCompleted then
+    -- Run is finished — show result instead of countdown
+    if data.isOverTime then
+      return "OVER TIME", MP.Colors.timerOver
+    end
+    -- Completed on time — show chest tier earned
+    local chestLabel = "+" .. (data.completionChest or 1)
+    return chestLabel .. " TIMED", MP.Colors.chestEarned
+  end
+  -- Still in progress
+  if data.isOverTime then
+    return "OVER TIME", MP.Colors.timerOver
+  end
+  return FormatTime(data.remaining) .. " left", nil -- nil = use timerColor
 end
 
 ----------------------------------------------------------------------
@@ -601,24 +672,25 @@ local function CreateMPDisplay(parent, width)
   el.deathHitbox = deathHitbox
 
   ----------------------------------------------------------------
-  -- 5. Enemy forces bar
+  -- 5. Enemy forces bar — taller bar with prominent percentage
   ----------------------------------------------------------------
   local trashRow = CreateFrame("Frame", nil, f)
-  trashRow:SetHeight(26)
+  trashRow:SetHeight(32)
   el.trashRow = trashRow
 
+  -- Label row: "Enemy Forces" on the left, percentage right next to it
   local trashLabel = TTQ:CreateText(trashRow, objSize, MP.Colors.labelColor, "LEFT")
-  trashLabel:SetPoint("LEFT", trashRow, "LEFT", 0, 6)
+  trashLabel:SetPoint("TOPLEFT", trashRow, "TOPLEFT", 0, 0)
   trashLabel:SetText("Enemy Forces")
   el.trashLabel = trashLabel
 
-  local trashPct = TTQ:CreateText(trashRow, objSize, MP.Colors.trashBar, "RIGHT")
-  trashPct:SetPoint("RIGHT", trashRow, "RIGHT", 0, 6)
+  local trashPct = TTQ:CreateText(trashRow, objSize + 2, { r = 1.0, g = 1.0, b = 1.0 }, "LEFT")
+  trashPct:SetPoint("LEFT", trashLabel, "RIGHT", 6, 0)
   el.trashPct = trashPct
 
-  -- Progress bar background
+  -- Progress bar background (taller for visibility)
   local barBg = trashRow:CreateTexture(nil, "BACKGROUND")
-  barBg:SetHeight(4)
+  barBg:SetHeight(10)
   barBg:SetPoint("BOTTOMLEFT", trashRow, "BOTTOMLEFT", 0, 1)
   barBg:SetPoint("BOTTOMRIGHT", trashRow, "BOTTOMRIGHT", 0, 1)
   barBg:SetColorTexture(MP.Colors.trashBg.r, MP.Colors.trashBg.g, MP.Colors.trashBg.b, 0.6)
@@ -626,7 +698,7 @@ local function CreateMPDisplay(parent, width)
 
   -- Progress bar fill
   local barFill = trashRow:CreateTexture(nil, "ARTWORK")
-  barFill:SetHeight(4)
+  barFill:SetHeight(10)
   barFill:SetPoint("BOTTOMLEFT", barBg, "BOTTOMLEFT", 0, 0)
   barFill:SetWidth(1)
   barFill:SetColorTexture(MP.Colors.trashBar.r, MP.Colors.trashBar.g, MP.Colors.trashBar.b, 0.9)
@@ -887,13 +959,10 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
   if not pcall(el.timerRemaining.SetFont, el.timerRemaining, objFont, objSize, objOutline) then
     pcall(el.timerRemaining.SetFont, el.timerRemaining, "Fonts\\FRIZQT__.TTF", objSize, objOutline)
   end
-  if data.isOverTime then
-    el.timerRemaining:SetText("OVER TIME")
-    el.timerRemaining:SetTextColor(MP.Colors.timerOver.r, MP.Colors.timerOver.g, MP.Colors.timerOver.b)
-  else
-    el.timerRemaining:SetText(FormatTime(data.remaining) .. " left")
-    el.timerRemaining:SetTextColor(timerColor.r, timerColor.g, timerColor.b)
-  end
+  local remText, remColor = GetTimerRemainingInfo(data)
+  el.timerRemaining:SetText(remText)
+  local rc = remColor or timerColor
+  el.timerRemaining:SetTextColor(rc.r, rc.g, rc.b)
 
   el.timerRow:ClearAllPoints()
   el.timerRow:SetPoint("TOPLEFT", mpFrame, "TOPLEFT", 0, -y)
@@ -1039,15 +1108,22 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
     if not pcall(el.trashLabel.SetFont, el.trashLabel, objFont, objSize, objOutline) then
       pcall(el.trashLabel.SetFont, el.trashLabel, "Fonts\\FRIZQT__.TTF", objSize, objOutline)
     end
-    if not pcall(el.trashPct.SetFont, el.trashPct, objFont, objSize, objOutline) then
-      pcall(el.trashPct.SetFont, el.trashPct, "Fonts\\FRIZQT__.TTF", objSize, objOutline)
+    -- Larger, brighter font for percentage — key information
+    local pctFontSize = objSize + 2
+    if not pcall(el.trashPct.SetFont, el.trashPct, objFont, pctFontSize, objOutline) then
+      pcall(el.trashPct.SetFont, el.trashPct, "Fonts\\FRIZQT__.TTF", pctFontSize, objOutline)
     end
 
     local pctStr = string.format("%.1f%%", data.enemyPct)
     el.trashPct:SetText(pctStr)
 
     local barColor = data.enemyComplete and MP.Colors.trashBarFull or MP.Colors.trashBar
-    el.trashPct:SetTextColor(barColor.r, barColor.g, barColor.b)
+    -- Bright white percentage text so it stands out
+    if data.enemyComplete then
+      el.trashPct:SetTextColor(MP.Colors.trashBarFull.r, MP.Colors.trashBarFull.g, MP.Colors.trashBarFull.b)
+    else
+      el.trashPct:SetTextColor(1.0, 1.0, 1.0)
+    end
     el.trashLabel:SetTextColor(MP.Colors.labelColor.r, MP.Colors.labelColor.g, MP.Colors.labelColor.b)
 
     -- Update bar fill width
@@ -1060,7 +1136,7 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
     el.trashRow:SetPoint("TOPLEFT", mpFrame, "TOPLEFT", 0, -y)
     el.trashRow:SetPoint("TOPRIGHT", mpFrame, "TOPRIGHT", 0, -y)
     el.trashRow:Show()
-    y = y + 28
+    y = y + 34 -- taller row to accommodate the bigger bar
   else
     el.trashRow:Hide()
   end
@@ -1185,14 +1261,10 @@ function TTQ:StartMythicPlusTimer()
     mpElements.timerText:SetText(FormatTime(data.elapsed))
     mpElements.timerText:SetTextColor(timerColor.r, timerColor.g, timerColor.b)
 
-    if data.isOverTime then
-      mpElements.timerRemaining:SetText("OVER TIME")
-      mpElements.timerRemaining:SetTextColor(
-        MP.Colors.timerOver.r, MP.Colors.timerOver.g, MP.Colors.timerOver.b)
-    else
-      mpElements.timerRemaining:SetText(FormatTime(data.remaining) .. " left")
-      mpElements.timerRemaining:SetTextColor(timerColor.r, timerColor.g, timerColor.b)
-    end
+    local remText, remColor = GetTimerRemainingInfo(data)
+    mpElements.timerRemaining:SetText(remText)
+    local rc = remColor or timerColor
+    mpElements.timerRemaining:SetTextColor(rc.r, rc.g, rc.b)
 
     -- Progress bar fill
     if mpElements.timerBarFill and mpElements.timerBarBg then
@@ -1297,21 +1369,33 @@ do
       mpCachedTimerID = nil
       mpRunCompleted = false
       mpCompletionTime = nil
+      mpCompletedOnTime = nil
+      mpCachedData = nil
       wipe(mpDeathLog)
       mpLastDeathCount = 0
 
       -- Run completed — freeze timer, keep display
     elseif evt == "CHALLENGE_MODE_COMPLETED" then
       mpRunCompleted = true
-      -- Capture the real dungeon elapsed time from the world timer.
-      -- Never fall back to GetTime() - mpStartTime because mpStartTime
-      -- includes the ~10s countdown phase, producing an inflated time
-      -- that incorrectly shows OVER TIME on timed runs.
+      -- Use the authoritative CompletionInfo API (same approach as WarpDeplete)
+      -- to get the precise completion time and onTime flag.
       local completionElapsed
-      if GetWorldElapsedTime then
-        local ok, _, elapsed = pcall(GetWorldElapsedTime, 1)
+      if C_ChallengeMode.GetChallengeCompletionInfo then
+        local ok, info = pcall(C_ChallengeMode.GetChallengeCompletionInfo)
+        if ok and info then
+          if info.time and info.time > 0 then
+            completionElapsed = info.time / 1000 -- convert ms → seconds
+          end
+          if info.onTime ~= nil then
+            mpCompletedOnTime = info.onTime
+          end
+        end
+      end
+      -- Fallback: try GetWorldElapsedTime if CompletionInfo didn't work
+      if not completionElapsed and GetWorldElapsedTime then
+        local ok2, _, elapsed = pcall(GetWorldElapsedTime, 1)
         elapsed = tonumber(elapsed)
-        if ok and elapsed and elapsed > 0 then
+        if ok2 and elapsed and elapsed > 0 then
           completionElapsed = elapsed
         end
       end
@@ -1322,6 +1406,8 @@ do
     elseif evt == "CHALLENGE_MODE_RESET" then
       mpRunCompleted = false
       mpCompletionTime = nil
+      mpCompletedOnTime = nil
+      mpCachedData = nil
       mpStartTime = nil
       mpCachedTimerID = nil
       TTQ:StopMythicPlusTimer()
@@ -1333,6 +1419,8 @@ do
         if instanceType ~= "party" and instanceType ~= "raid" then
           mpRunCompleted = false
           mpCompletionTime = nil
+          mpCompletedOnTime = nil
+          mpCachedData = nil
           mpStartTime = nil
           mpCachedTimerID = nil
           wipe(mpDeathLog)
