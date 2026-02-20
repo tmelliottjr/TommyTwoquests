@@ -192,7 +192,7 @@ function TTQ:CreateReagentItem(parent)
   local checkIcon = frame:CreateTexture(nil, "ARTWORK")
   checkIcon:SetSize(10, 10)
   checkIcon:SetPoint("LEFT", frame, "LEFT", 0, 0)
-  checkIcon:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
+  checkIcon:SetTexture("Interface\\AddOns\\TommyTwoquests\\Textures\\checkmark")
   checkIcon:Hide()
   item.checkIcon = checkIcon
 
@@ -457,11 +457,11 @@ function TTQ:BuildRecipeData(recipeID, isRecraft)
           -- Enum.CraftingReagentType: 0=None, 1=Basic, 2=Optional,
           -- 3=Finishing, 4=Modifying (varies by expansion)
           if slot.reagentType == 1 then
-            isRequired = true              -- Basic/required reagent
+            isRequired = true  -- Basic/required reagent
           elseif slot.reagentType == 0 then
-            isRequired = true              -- Treat None/untyped as required
+            isRequired = true  -- Treat None/untyped as required
           else
-            isRequired = false             -- Optional/Finishing/Modifying
+            isRequired = false -- Optional/Finishing/Modifying
           end
         end
 
@@ -511,7 +511,7 @@ function TTQ:BuildRecipeData(recipeID, isRecraft)
             table.insert(reagents, {
               itemID = primaryItemID,
               name   = primaryName or ("Item " .. primaryItemID),
-              icon   = nil,                -- could fetch icon but keeping lightweight
+              icon   = nil, -- could fetch icon but keeping lightweight
               have   = math.min(totalHave, needed),
               needed = needed,
             })
@@ -886,7 +886,7 @@ function TTQ:RenderRecipeBlock(parentFrame, width, yOffset)
     local iconSize = math.max(10, headerSize - 1)
     -- Use profession-related atlas
     local atlasOK = pcall(self._recipeHeaderIcon.SetAtlas, self._recipeHeaderIcon,
-      "Professions-Icon-Quality-Tier1-Small", false)
+      "Campaign-QuestLog-LoreBook", false)
     if not atlasOK then
       pcall(self._recipeHeaderIcon.SetAtlas, self._recipeHeaderIcon, "Profession", false)
     end
@@ -980,7 +980,7 @@ function TTQ:RenderRecipeBlock(parentFrame, width, yOffset)
     totalHeight = yInBlock
   end
 
-  totalHeight = totalHeight + 4   -- section spacing
+  totalHeight = totalHeight + 4 -- section spacing
   container:SetHeight(totalHeight)
   return totalHeight
 end

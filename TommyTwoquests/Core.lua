@@ -134,7 +134,7 @@ function TTQ:OnReady()
     end
 
     -- Print load message
-    print("|cff00ccffTommyTwoquests|r v" .. self.Version .. " loaded. Type |cff00ccff/ttq|r for options.")
+    print("|cff00ccffTommyTwoquests|r loaded. Type |cff00ccff/ttq|r for options.")
 end
 
 ----------------------------------------------------------------------

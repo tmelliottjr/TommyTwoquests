@@ -57,7 +57,6 @@ TTQ.Defaults = {
     showAccount              = true,
     filterByCurrentZone      = false,
     groupCurrentZoneQuests   = false,
-    showActiveWorldQuests    = true,
 
     -- Behavior
     showIcons                = true,

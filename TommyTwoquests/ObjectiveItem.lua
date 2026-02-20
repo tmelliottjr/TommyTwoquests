@@ -61,7 +61,7 @@ function TTQ:CreateObjectiveItem(parent)
     local checkIcon = frame:CreateTexture(nil, "ARTWORK")
     checkIcon:SetSize(10, 10)
     checkIcon:SetPoint("LEFT", frame, "LEFT", 0, 0)
-    checkIcon:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
+    checkIcon:SetTexture("Interface\\AddOns\\TommyTwoquests\\Textures\\checkmark")
     checkIcon:Hide()
     item.checkIcon = checkIcon
 

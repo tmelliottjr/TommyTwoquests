@@ -59,8 +59,8 @@ TTQ.FontOutlines = {
 ----------------------------------------------------------------------
 -- Default/available state (e.g. not yet turned in, or generic)
 TTQ.QuestIcons = {
-    -- Campaign: main story, parchment-style
-    campaign      = "Campaign-QuestLog-LoreBook",
+    -- Campaign: main story, shield/banner badge
+    campaign      = "quest-campaign-available",
     -- Important: purple chevron (available); active = yellow-gold chevron (tracked)
     important     = "quest-important-available",
     legendary     = "quest-legendary-available",
@@ -85,8 +85,8 @@ TTQ.QuestIcons = {
 
 -- Turnin/active/complete variants (when quest is tracked or complete)
 TTQ.QuestIconsTurnin = {
-    campaign      = "Campaign-QuestLog-LoreBook", -- same
-    important     = "quest-important-turnin",     -- Active Important (yellow-gold chevron)
+    campaign      = "quest-campaign-available", -- same style
+    important     = "quest-important-turnin",   -- Active Important (yellow-gold chevron)
     legendary     = "quest-legendary-turnin",
     worldquest    = "worldquest-tracker-questmarker",
     pvpworldquest = "questlog-questtypeicon-pvp",

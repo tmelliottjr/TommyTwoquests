@@ -148,16 +148,7 @@ function TTQ:FilterAndGroupQuests(quests)
     end
 
     -- Sort groups by their type priority, then append in order.
-    -- When zone grouping is off, push world quest groups to the bottom
-    -- so they sit below regular tracked quests.
     table.sort(groupOrder, function(a, b)
-        if not groupByZone then
-            local aIsWQ = (a == "worldquest" or a == "pvpworldquest")
-            local bIsWQ = (b == "worldquest" or b == "pvpworldquest")
-            if aIsWQ ~= bIsWQ then
-                return bIsWQ -- non-WQ sorts before WQ
-            end
-        end
         local prioA = TTQ.QuestTypePriority[a] or 99
         local prioB = TTQ.QuestTypePriority[b] or 99
         return prioA < prioB

@@ -669,6 +669,34 @@ local function BuildOptionCategories()
                         setDB("trackerMaxHeight", v)
                     end
                 },
+                {
+                    type = "toggle",
+                    name = "Lock position",
+                    desc = "Prevent the tracker from being dragged.",
+                    dbKey = "locked",
+                    get = function()
+                        return
+                            getDB("locked", false)
+                    end,
+                    set = function(
+                        v)
+                        setDB("locked", v)
+                    end
+                },
+                {
+                    type = "toggle",
+                    name = "Show tracker header",
+                    desc = "Show the title bar with 'Quests' text. When hidden, only the icon buttons appear.",
+                    dbKey = "showTrackerHeader",
+                    get = function()
+                        return
+                            getDB("showTrackerHeader", true)
+                    end,
+                    set = function(
+                        v)
+                        setDB("showTrackerHeader", v)
+                    end
+                },
                 { type = "section", name = "Background" },
                 {
                     type = "toggle",
@@ -715,18 +743,19 @@ local function BuildOptionCategories()
                         setDB("classColorGradient", v)
                     end
                 },
+                { type = "section", name = "Visibility" },
                 {
                     type = "toggle",
-                    name = "Lock position",
-                    desc = "Prevent the tracker from being dragged.",
-                    dbKey = "locked",
+                    name = "Hide in combat",
+                    desc = "Hide the tracker when you enter combat.",
+                    dbKey = "hideInCombat",
                     get = function()
                         return
-                            getDB("locked", false)
+                            getDB("hideInCombat", false)
                     end,
                     set = function(
                         v)
-                        setDB("locked", v)
+                        setDB("hideInCombat", v)
                     end
                 },
             },
@@ -1169,21 +1198,6 @@ local function BuildOptionCategories()
             key = "Behavior",
             name = "Behavior",
             options = {
-                { type = "section", name = "Interface" },
-                {
-                    type = "toggle",
-                    name = "Show tracker header",
-                    desc = "Show the title bar with 'Quests' text. When hidden, only the icon buttons appear.",
-                    dbKey = "showTrackerHeader",
-                    get = function()
-                        return
-                            getDB("showTrackerHeader", true)
-                    end,
-                    set = function(
-                        v)
-                        setDB("showTrackerHeader", v)
-                    end
-                },
                 { type = "section", name = "Interaction" },
                 {
                     type = "toggle",
@@ -1226,21 +1240,6 @@ local function BuildOptionCategories()
                     set = function(
                         v)
                         setDB("showRecipes", v)
-                    end
-                },
-                { type = "section", name = "Combat" },
-                {
-                    type = "toggle",
-                    name = "Hide in combat",
-                    desc = "Hide the tracker when you enter combat.",
-                    dbKey = "hideInCombat",
-                    get = function()
-                        return
-                            getDB("hideInCombat", false)
-                    end,
-                    set = function(
-                        v)
-                        setDB("hideInCombat", v)
                     end
                 },
                 { type = "section", name = "Fading" },
@@ -1931,7 +1930,7 @@ function TTQ:CreatePreviewFrame()
 
     -- Obj 2: complete
     local o2Dash = self:CreateText(content, 11, { r = 0.5, g = 0.5, b = 0.5 }, "LEFT")
-    o2Dash:SetText("|T Interface\\RaidFrame\\ReadyCheck-Ready:11|t")
+    o2Dash:SetText("|T Interface\\AddOns\\TommyTwoquests\\Textures\\checkmark:11|t")
     o2Dash:SetWidth(14)
     frame.o2Dash = o2Dash
 
@@ -2073,7 +2072,7 @@ function TTQ:RefreshPreview()
     safeFont(frame.o2Dash, objFont, objSize, objOutline)
     frame.o2Dash:SetTextColor(compColor.r, compColor.g, compColor.b)
     local objCheckSize = self:GetSetting("objectiveFontSize") or 11
-    frame.o2Dash:SetText("|T Interface\\RaidFrame\\ReadyCheck-Ready:" .. objCheckSize .. "|t")
+    frame.o2Dash:SetText("|T Interface\\AddOns\\TommyTwoquests\\Textures\\checkmark:" .. objCheckSize .. "|t")
 
     frame.o2Text:ClearAllPoints()
     frame.o2Text:SetPoint("LEFT", frame.o2Dash, "RIGHT", 2, 0)

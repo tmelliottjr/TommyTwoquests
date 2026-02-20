@@ -214,6 +214,33 @@ function TTQ:CreateTrackerFrame()
     titleBar:SetHeight(28)
     titleBar:SetPoint("TOPLEFT", tracker, "TOPLEFT", 0, 0)
     titleBar:SetPoint("TOPRIGHT", tracker, "TOPRIGHT", 0, 0)
+    -- Forward drag events from the title bar to the tracker so dragging
+    -- still works when the header is hidden and the title bar intercepts mouse
+    titleBar:EnableMouse(true)
+    titleBar:RegisterForDrag("LeftButton")
+    titleBar:SetScript("OnDragStart", function()
+        if not TTQ:GetSetting("locked") then
+            tracker:StartMoving()
+        end
+    end)
+    titleBar:SetScript("OnDragStop", function()
+        tracker:StopMovingOrSizing()
+        local top = tracker:GetTop()
+        local right = tracker:GetRight()
+        local parentRight = UIParent:GetRight() or GetScreenWidth()
+        local parentTop = UIParent:GetTop() or GetScreenHeight()
+        local scale = tracker:GetEffectiveScale() / UIParent:GetEffectiveScale()
+        local newX = (right * scale) - parentRight
+        local newY = (top * scale) - parentTop
+        tracker:ClearAllPoints()
+        tracker:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", newX, newY)
+        TTQ:SetSetting("trackerAnchor", {
+            point = "TOPRIGHT",
+            relativePoint = "TOPRIGHT",
+            x = newX,
+            y = newY,
+        })
+    end)
     self.TitleBar = titleBar
 
     -- Soft bottom divider under title bar (inset to avoid square corners)
@@ -850,24 +877,6 @@ function TTQ:RefreshTracker()
     end
     -- Get data
     local quests = self:GetTrackedQuests()
-
-    -- Merge active world quests (player is in the quest area) if enabled
-    if self:GetSetting("showActiveWorldQuests") and self:GetSetting("showWorldQuests") ~= false then
-        local activeWQs = self:GetActiveWorldQuests()
-        if activeWQs and #activeWQs > 0 then
-            -- Build a set of already-tracked quest IDs to avoid duplicates
-            local trackedIDs = {}
-            for _, q in ipairs(quests) do
-                trackedIDs[q.questID] = true
-            end
-            for _, wq in ipairs(activeWQs) do
-                if not trackedIDs[wq.questID] then
-                    table.insert(quests, wq)
-                end
-            end
-        end
-    end
-
     local _, groups = self:FilterAndGroupQuests(quests)
 
     -- Zone label (truncate so it doesn't overlap header)
@@ -1014,7 +1023,8 @@ function TTQ:RefreshTracker()
                 if criteria.completed then
                     objItem.text:SetTextColor(completeColor.r, completeColor.g, completeColor.b)
                     objItem.dash:SetTextColor(completeColor.r, completeColor.g, completeColor.b)
-                    objItem.dash:SetText("|T Interface\\RaidFrame\\ReadyCheck-Ready:" .. objFontSize .. "|t")
+                    objItem.dash:SetText("|T Interface\\AddOns\\TommyTwoquests\\Textures\\checkmark:" ..
+                    objFontSize .. "|t")
                 else
                     objItem.text:SetTextColor(incompleteColor.r, incompleteColor.g, incompleteColor.b)
                     objItem.dash:SetTextColor(incompleteColor.r, incompleteColor.g, incompleteColor.b)
@@ -1045,14 +1055,6 @@ function TTQ:RefreshTracker()
         gc.startY = yOffset
         table.insert(activeGroupContainers, gc)
         yOffset = yOffset + groupContentHeight
-    end
-
-    -- === Recipe Tracking Block ===
-    if not isMythicPlus and self.RenderRecipeBlock then
-        local recipeHeight = self:RenderRecipeBlock(self.Content, width, yOffset)
-        yOffset = yOffset + recipeHeight
-    elseif self.HideRecipeDisplay then
-        self:HideRecipeDisplay()
     end
 
     -- Skip all quest categories when Mythic+ is active (M+ block is the sole display)
@@ -1204,6 +1206,14 @@ function TTQ:RefreshTracker()
         yOffset = yOffset + groupContentHeight
     end
 
+    -- === Recipe Tracking Block (always at the bottom) ===
+    if not isMythicPlus and self.RenderRecipeBlock then
+        local recipeHeight = self:RenderRecipeBlock(self.Content, width, yOffset)
+        yOffset = yOffset + recipeHeight
+    elseif self.HideRecipeDisplay then
+        self:HideRecipeDisplay()
+    end
+
     -- Update title and its font
     local totalTracked = 0
     for _, g in ipairs(groups) do totalTracked = totalTracked + #g.quests end
@@ -1317,7 +1327,7 @@ local FILTER_DD = {
 
 -- Atlas name to use for each filter row's icon
 local FILTER_ICON_ATLAS = {
-    showCampaign    = "Campaign-QuestLog-LoreBook",
+    showCampaign    = "quest-campaign-available",
     showImportant   = "quest-important-available",
     showLegendary   = "quest-legendary-available",
     showWorldQuests = "worldquest-tracker-questmarker",
@@ -1329,6 +1339,7 @@ local FILTER_ICON_ATLAS = {
     showMeta        = "quest-wrapper-available",
     showPvP         = "questlog-questtypeicon-pvp",
     showAccount     = "QuestSharing-QuestLog-Active",
+    showRecipes     = "Campaign-QuestLog-LoreBook",
 }
 
 ----------------------------------------------------------------------
@@ -1470,7 +1481,7 @@ function TTQ:CreateFilterDropdownFrame()
     secZone:SetTextColor(dd.SectionCol[1], dd.SectionCol[2], dd.SectionCol[3])
     secZone:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
     secZone:SetJustifyH("LEFT")
-    secZone:SetText("ZONE")
+    secZone:SetText("CURRENT ZONE")
     y = y - 16
 
     -- Zone filter row
@@ -1496,7 +1507,7 @@ function TTQ:CreateFilterDropdownFrame()
     zoneLabel:SetFont(dd.Font, 12, "")
     zoneLabel:SetPoint("LEFT", zoneIcon, "RIGHT", 6, 0)
     zoneLabel:SetJustifyH("LEFT")
-    zoneLabel:SetText("Current Zone Only")
+    zoneLabel:SetText("Hide Others")
 
     local zoneToggle = CreateFilterToggle(zoneRow)
     zoneToggle:SetPoint("RIGHT", zoneRow, "RIGHT", -2, 0)
@@ -1510,6 +1521,14 @@ function TTQ:CreateFilterDropdownFrame()
         TTQ:RefreshFilterDropdown()
         TTQ:RefreshTracker()
     end)
+
+    zoneRow:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText("Hide Others", 1, 1, 1)
+        GameTooltip:AddLine("Only show quests that are in your current zone.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    zoneRow:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     frame.zoneRow = zoneRow
     y = y - dd.RowHeight
@@ -1539,7 +1558,7 @@ function TTQ:CreateFilterDropdownFrame()
     gzLabel:SetFont(dd.Font, 12, "")
     gzLabel:SetPoint("LEFT", gzIcon, "RIGHT", 6, 0)
     gzLabel:SetJustifyH("LEFT")
-    gzLabel:SetText("Group by Zone")
+    gzLabel:SetText("Show on Top")
 
     local gzToggle = CreateFilterToggle(groupZoneRow)
     gzToggle:SetPoint("RIGHT", groupZoneRow, "RIGHT", -2, 0)
@@ -1554,48 +1573,16 @@ function TTQ:CreateFilterDropdownFrame()
         TTQ:RefreshTracker()
     end)
 
-    frame.groupZoneRow = groupZoneRow
-    y = y - dd.RowHeight
-
-    -- Active World Quests row
-    local awqRow = CreateFrame("Button", nil, content)
-    awqRow:SetHeight(dd.RowHeight)
-    awqRow:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
-    awqRow:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, y)
-
-    local awqHl = awqRow:CreateTexture(nil, "HIGHLIGHT")
-    awqHl:SetAllPoints()
-    awqHl:SetColorTexture(dd.HoverRow[1], dd.HoverRow[2], dd.HoverRow[3], dd.HoverRow[4])
-
-    local awqIcon = awqRow:CreateTexture(nil, "ARTWORK")
-    awqIcon:SetSize(dd.IconSize, dd.IconSize)
-    awqIcon:SetPoint("LEFT", awqRow, "LEFT", 2, 0)
-    if C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("worldquest-tracker-questmarker") then
-        awqIcon:SetAtlas("worldquest-tracker-questmarker", false)
-    else
-        awqIcon:SetTexture("Interface\\Minimap\\Tracking\\None")
-    end
-
-    local awqLabel = awqRow:CreateFontString(nil, "OVERLAY")
-    awqLabel:SetFont(dd.Font, 12, "")
-    awqLabel:SetPoint("LEFT", awqIcon, "RIGHT", 6, 0)
-    awqLabel:SetJustifyH("LEFT")
-    awqLabel:SetText("Active World Quests")
-
-    local awqToggle = CreateFilterToggle(awqRow)
-    awqToggle:SetPoint("RIGHT", awqRow, "RIGHT", -2, 0)
-    awqRow.toggle = awqToggle
-    awqRow.settingKey = "showActiveWorldQuests"
-    awqRow.label = awqLabel
-
-    awqRow:SetScript("OnClick", function()
-        local cur = TTQ:GetSetting("showActiveWorldQuests")
-        TTQ:SetSetting("showActiveWorldQuests", not cur)
-        TTQ:RefreshFilterDropdown()
-        TTQ:RefreshTracker()
+    groupZoneRow:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText("Show on Top", 1, 1, 1)
+        GameTooltip:AddLine("Pull quests from your current zone into their own group at the top of the tracker.", 0.8,
+            0.8, 0.8, true)
+        GameTooltip:Show()
     end)
+    groupZoneRow:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    frame.awqRow = awqRow
+    frame.groupZoneRow = groupZoneRow
     y = y - dd.RowHeight - 6
 
     --------------------------------------------------------------------
@@ -1616,7 +1603,7 @@ function TTQ:CreateFilterDropdownFrame()
     secTypes:SetTextColor(dd.SectionCol[1], dd.SectionCol[2], dd.SectionCol[3])
     secTypes:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
     secTypes:SetJustifyH("LEFT")
-    secTypes:SetText("QUEST TYPES")
+    secTypes:SetText("CATEGORIES")
     y = y - 16
 
     -- Filter items list — order matches Config.lua priority
@@ -1633,6 +1620,7 @@ function TTQ:CreateFilterDropdownFrame()
         { setting = "showMeta",        label = "Meta Quests",    icon = "meta" },
         { setting = "showPvP",         label = "PvP",            icon = "pvp" },
         { setting = "showAccount",     label = "Account",        icon = "account" },
+        { setting = "showRecipes",     label = "Recipes",        icon = "recipe" },
     }
 
     local rows = {}
@@ -1781,14 +1769,6 @@ function TTQ:RefreshFilterDropdown()
         frame.groupZoneRow.toggle:SetState(on, true)
         local col = on and FILTER_DD.LabelOn or FILTER_DD.LabelOff
         frame.groupZoneRow.label:SetTextColor(col[1], col[2], col[3])
-    end
-
-    -- Active World Quests row
-    if frame.awqRow then
-        local on = self:GetSetting("showActiveWorldQuests") and true or false
-        frame.awqRow.toggle:SetState(on, true)
-        local col = on and FILTER_DD.LabelOn or FILTER_DD.LabelOff
-        frame.awqRow.label:SetTextColor(col[1], col[2], col[3])
     end
 
     -- Quest-type rows

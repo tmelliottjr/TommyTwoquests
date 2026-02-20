@@ -181,8 +181,8 @@ function TTQ:CreateQuestItem(parent)
         -- Tooltip
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:SetText(questData.title, 1, 1, 1)
-        if questData.isActiveWorldQuest then
-            GameTooltip:AddLine("Active World Quest", 0.4, 0.8, 1.0)
+        if questData.isTask then
+            GameTooltip:AddLine("World Quest", 0.4, 0.8, 1.0)
         end
         if questData.objectives then
             for _, obj in ipairs(questData.objectives) do
@@ -603,10 +603,10 @@ function TTQ:ShowQuestContextMenu(item)
     frame.btnShowMap.label:SetTextColor(0.9, 0.9, 0.9)
 
     -- Untrack
-    local isActiveWQ = quest.isActiveWorldQuest
-    local untrackDisabled = isActiveWQ
+    local isWorldQuestTask = quest.isTask
+    local untrackDisabled = isWorldQuestTask
     frame.btnUntrack.tooltip = untrackDisabled
-        and "Active world quests are automatically tracked while you are in the area."
+        and "World quests are automatically tracked while you are in the area."
         or "Stop tracking this quest in the tracker."
     frame.btnUntrack.onClick = function()
         if untrackDisabled then return end

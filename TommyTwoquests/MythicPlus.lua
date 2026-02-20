@@ -99,17 +99,17 @@ function TTQ:GetMythicPlusData()
     dungeonName     = "",
     keystoneLevel   = 0,
     affixes         = {},
-    timeLimit       = 0,   -- base time limit in seconds
-    elapsed         = 0,   -- seconds elapsed
-    remaining       = 0,   -- seconds remaining (can be negative)
+    timeLimit       = 0,     -- base time limit in seconds
+    elapsed         = 0,     -- seconds elapsed
+    remaining       = 0,     -- seconds remaining (can be negative)
     isOverTime      = false,
     runCompleted    = false, -- true when CHALLENGE_MODE_COMPLETED fired
-    completedOnTime = nil, -- boolean from CompletionInfo API
-    completionChest = 0,   -- 1/2/3 chest tier earned (0 if over time)
-    chestTimers     = {},  -- { {label, limit, remaining, active} ... }
+    completedOnTime = nil,   -- boolean from CompletionInfo API
+    completionChest = 0,     -- 1/2/3 chest tier earned (0 if over time)
+    chestTimers     = {},    -- { {label, limit, remaining, active} ... }
     deaths          = 0,
-    deathPenalty    = 0,   -- seconds lost to deaths
-    bosses          = {},  -- { {name, completed} ... }
+    deathPenalty    = 0,     -- seconds lost to deaths
+    bosses          = {},    -- { {name, completed} ... }
     bossesKilled    = 0,
     bossesTotal     = 0,
     enemyForces     = 0, -- current count/progress
@@ -654,8 +654,9 @@ local function CreateMPDisplay(parent, width)
       local totalPenalty = #mpDeathLog * DEATH_PENALTY_PER
       GameTooltip:AddLine(" ")
       GameTooltip:AddLine(
-      #mpDeathLog ..
-      " total " .. (#mpDeathLog == 1 and "death" or "deaths") .. "  |  +" .. FormatTime(totalPenalty) .. " penalty", 0.6,
+        #mpDeathLog ..
+        " total " .. (#mpDeathLog == 1 and "death" or "deaths") .. "  |  +" .. FormatTime(totalPenalty) .. " penalty",
+        0.6,
         0.6, 0.6)
     else
       -- Fallback: show count from API even if we missed the details
@@ -1161,7 +1162,7 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
     if boss.completed then
       local c = completeColor
       bossItem.name:SetTextColor(c.r, c.g, c.b)
-      bossItem.dash:SetText("|TInterface\\RaidFrame\\ReadyCheck-Ready:" .. objSize .. "|t")
+      bossItem.dash:SetText("|TInterface\\AddOns\\TommyTwoquests\\Textures\\checkmark:" .. objSize .. "|t")
       bossItem.dash:SetTextColor(c.r, c.g, c.b)
     else
       local c = incompleteColor
