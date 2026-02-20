@@ -1,16 +1,9 @@
 name: Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      bump:
-        description: "Version bump type"
-        required: true
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
   contents: write
@@ -22,36 +15,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
 
-      - name: Read current version & compute next version
+      - name: Extract version from tag
         id: version
         run: |
-          # Extract current version from .toc
-          CURRENT=$(grep -oP '## Version:\s*\K[\d.]+' TommyTwoquests.toc)
-          echo "Current version: $CURRENT"
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Releasing version: $TAG"
 
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          # Validate semver format
+          if ! [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag must be valid semver (e.g. v1.2.3)"
+            exit 1
+          fi
 
-          case "${{ github.event.inputs.bump }}" in
-            major)
-              MAJOR=$((MAJOR + 1))
-              MINOR=0
-              PATCH=0
-              ;;
-            minor)
-              MINOR=$((MINOR + 1))
-              PATCH=0
-              ;;
-            patch)
-              PATCH=$((PATCH + 1))
-              ;;
-          esac
-
-          NEXT="${MAJOR}.${MINOR}.${PATCH}"
-          echo "Next version: $NEXT"
-          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
-
-      - name: Bump version in .toc
+      - name: Update version in .toc
         run: |
           sed -i "s/^## Version: .*/## Version: ${{ steps.version.outputs.version }}/" TommyTwoquests.toc
 
@@ -60,15 +40,27 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add TommyTwoquests.toc
-          git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
-          git push
+          # Only commit if version actually changed
+          git diff --cached --quiet && echo "Version already up to date" || {
+            git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+            git push
+          }
+
+      - name: Update tag to include version bump commit
+        run: |
+          git tag -f "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}" --force
 
       - name: Bundle addon zip
         run: |
           ADDON_DIR="TommyTwoquests"
           mkdir -p "$ADDON_DIR"
-          # Copy all addon files (exclude CI/git metadata)
-          rsync -a --exclude='.git' --exclude='.github' --exclude="$ADDON_DIR" . "$ADDON_DIR/"
+          # Copy only addon files — exclude CI, git, and build artifacts
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude="$ADDON_DIR" \
+            . "$ADDON_DIR/"
           zip -r "TommyTwoquests-${{ steps.version.outputs.version }}.zip" "$ADDON_DIR"
 
       - name: Create GitHub Release
