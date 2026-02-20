@@ -1213,6 +1213,20 @@ local function BuildOptionCategories()
                         setDB("collapseCompleted", v)
                     end
                 },
+                {
+                    type = "toggle",
+                    name = "Show tracked recipes",
+                    desc = "Display tracked profession recipes with reagent progress. Right-click a recipe to search the Auction House (requires Auctionator).",
+                    dbKey = "showRecipes",
+                    get = function()
+                        return
+                            getDB("showRecipes", true)
+                    end,
+                    set = function(
+                        v)
+                        setDB("showRecipes", v)
+                    end
+                },
                 { type = "section", name = "Combat" },
                 {
                     type = "toggle",

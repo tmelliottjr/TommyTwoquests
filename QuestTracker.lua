@@ -648,6 +648,12 @@ do
         "PLAYER_ENTERING_WORLD",
         "UNIT_QUEST_LOG_CHANGED",
         "QUEST_POI_UPDATE",
+        -- Recipe tracking events
+        "TRACKED_RECIPE_UPDATE",
+        "BAG_UPDATE",
+        "BAG_UPDATE_DELAYED",
+        "TRADE_SKILL_LIST_UPDATE",
+        "CRAFTINGORDERS_RECIPE_LIST_UPDATE",
     }
     for _, ev in ipairs(questEvents) do
         qf:RegisterEvent(ev)
@@ -1039,6 +1045,14 @@ function TTQ:RefreshTracker()
         gc.startY = yOffset
         table.insert(activeGroupContainers, gc)
         yOffset = yOffset + groupContentHeight
+    end
+
+    -- === Recipe Tracking Block ===
+    if not isMythicPlus and self.RenderRecipeBlock then
+        local recipeHeight = self:RenderRecipeBlock(self.Content, width, yOffset)
+        yOffset = yOffset + recipeHeight
+    elseif self.HideRecipeDisplay then
+        self:HideRecipeDisplay()
     end
 
     -- Skip all quest categories when Mythic+ is active (M+ block is the sole display)

@@ -80,11 +80,17 @@ TTQ.Defaults = {
     bgColor                  = { r = 0.05, g = 0.05, b = 0.05 },
     bgPadding                = 8,
 
+    -- Recipes
+    showRecipes              = true,
+
     -- Collapsed category groups (keyed by quest type, e.g. collapsedGroups.campaign = true)
     collapsedGroups          = {},
 
     -- Collapsed individual quests (keyed by questID)
     collapsedQuests          = {},
+
+    -- Collapsed individual recipes (keyed by "recipe_<recipeID>")
+    collapsedRecipes         = {},
 }
 
 ----------------------------------------------------------------------

@@ -95,27 +95,27 @@ function TTQ:GetMythicPlusData()
   if not self:IsMythicPlusActive() then return nil end
 
   local data = {
-    mapID         = 0,
-    dungeonName   = "",
-    keystoneLevel = 0,
-    affixes       = {},
-    timeLimit     = 0,  -- base time limit in seconds
-    elapsed       = 0,  -- seconds elapsed
-    remaining     = 0,  -- seconds remaining (can be negative)
-    isOverTime    = false,
-    runCompleted  = false,      -- true when CHALLENGE_MODE_COMPLETED fired
-    completedOnTime = nil,      -- boolean from CompletionInfo API
-    completionChest = 0,        -- 1/2/3 chest tier earned (0 if over time)
-    chestTimers   = {}, -- { {label, limit, remaining, active} ... }
-    deaths        = 0,
-    deathPenalty  = 0,  -- seconds lost to deaths
-    bosses        = {}, -- { {name, completed} ... }
-    bossesKilled  = 0,
-    bossesTotal   = 0,
-    enemyForces   = 0, -- current count/progress
-    enemyTotal    = 0, -- total needed
-    enemyPct      = 0, -- 0-100
-    enemyComplete = false,
+    mapID           = 0,
+    dungeonName     = "",
+    keystoneLevel   = 0,
+    affixes         = {},
+    timeLimit       = 0,   -- base time limit in seconds
+    elapsed         = 0,   -- seconds elapsed
+    remaining       = 0,   -- seconds remaining (can be negative)
+    isOverTime      = false,
+    runCompleted    = false, -- true when CHALLENGE_MODE_COMPLETED fired
+    completedOnTime = nil, -- boolean from CompletionInfo API
+    completionChest = 0,   -- 1/2/3 chest tier earned (0 if over time)
+    chestTimers     = {},  -- { {label, limit, remaining, active} ... }
+    deaths          = 0,
+    deathPenalty    = 0,   -- seconds lost to deaths
+    bosses          = {},  -- { {name, completed} ... }
+    bossesKilled    = 0,
+    bossesTotal     = 0,
+    enemyForces     = 0, -- current count/progress
+    enemyTotal      = 0, -- total needed
+    enemyPct        = 0, -- 0-100
+    enemyComplete   = false,
   }
 
   -- Map / dungeon info
@@ -630,8 +630,8 @@ local function CreateMPDisplay(parent, width)
     GameTooltip:SetText("Death Log", 0.90, 0.30, 0.30)
     if #mpDeathLog > 0 then
       -- Aggregate deaths per player: { name, class, count, totalPenalty }
-      local byPlayer = {}  -- name -> { class, count }
-      local order = {}     -- insertion-order of names
+      local byPlayer = {} -- name -> { class, count }
+      local order = {}    -- insertion-order of names
       for _, entry in ipairs(mpDeathLog) do
         if not byPlayer[entry.name] then
           byPlayer[entry.name] = { class = entry.class, count = 0 }
@@ -653,7 +653,10 @@ local function CreateMPDisplay(parent, width)
       -- Total summary
       local totalPenalty = #mpDeathLog * DEATH_PENALTY_PER
       GameTooltip:AddLine(" ")
-      GameTooltip:AddLine(#mpDeathLog .. " total " .. (#mpDeathLog == 1 and "death" or "deaths") .. "  |  +" .. FormatTime(totalPenalty) .. " penalty", 0.6, 0.6, 0.6)
+      GameTooltip:AddLine(
+      #mpDeathLog ..
+      " total " .. (#mpDeathLog == 1 and "death" or "deaths") .. "  |  +" .. FormatTime(totalPenalty) .. " penalty", 0.6,
+        0.6, 0.6)
     else
       -- Fallback: show count from API even if we missed the details
       local numDeaths = 0
