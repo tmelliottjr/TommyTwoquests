@@ -380,18 +380,35 @@ function TTQ:GetTrackedRecipes()
   if not C_TradeSkillUI then return recipes end
 
   -- Get list of tracked recipe IDs
-  local trackedIDs
+  -- Each entry: { id = recipeID, isRecraft = bool }
+  local trackedEntries = {}
   if C_TradeSkillUI.GetRecipesTracked then
-    -- TWW/Modern API
-    trackedIDs = C_TradeSkillUI.GetRecipesTracked()
+    -- TWW/Modern API - get both normal and recraft tracked recipes
+    local normalIDs = C_TradeSkillUI.GetRecipesTracked(false)
+    if normalIDs then
+      for _, id in ipairs(normalIDs) do
+        table.insert(trackedEntries, { id = id, isRecraft = false })
+      end
+    end
+    local recraftIDs = C_TradeSkillUI.GetRecipesTracked(true)
+    if recraftIDs then
+      for _, id in ipairs(recraftIDs) do
+        table.insert(trackedEntries, { id = id, isRecraft = true })
+      end
+    end
   elseif C_TradeSkillUI.GetTrackedRecipeIDs then
-    trackedIDs = C_TradeSkillUI.GetTrackedRecipeIDs()
+    local ids = C_TradeSkillUI.GetTrackedRecipeIDs()
+    if ids then
+      for _, id in ipairs(ids) do
+        table.insert(trackedEntries, { id = id, isRecraft = false })
+      end
+    end
   end
 
-  if not trackedIDs or #trackedIDs == 0 then return recipes end
+  if #trackedEntries == 0 then return recipes end
 
-  for _, recipeID in ipairs(trackedIDs) do
-    local recipeData = self:BuildRecipeData(recipeID)
+  for _, entry in ipairs(trackedEntries) do
+    local recipeData = self:BuildRecipeData(entry.id, entry.isRecraft)
     if recipeData then
       table.insert(recipes, recipeData)
     end
@@ -403,7 +420,7 @@ end
 ----------------------------------------------------------------------
 -- Build structured data for a single tracked recipe
 ----------------------------------------------------------------------
-function TTQ:BuildRecipeData(recipeID)
+function TTQ:BuildRecipeData(recipeID, isRecraft)
   if not C_TradeSkillUI then return nil end
 
   local recipeInfo
@@ -507,6 +524,7 @@ function TTQ:BuildRecipeData(recipeID)
   -- If we couldn't get any schematic data, still show the recipe
   return {
     recipeID         = recipeID,
+    isRecraft        = isRecraft or false,
     name             = name,
     icon             = icon,
     professionName   = professionName,
@@ -737,7 +755,7 @@ function TTQ:ShowRecipeContextMenu(item)
   frame.btnUntrack.tooltip = "Stop tracking this recipe."
   frame.btnUntrack.onClick = function()
     if C_TradeSkillUI and C_TradeSkillUI.SetRecipeTracked then
-      C_TradeSkillUI.SetRecipeTracked(recipeID, false)
+      C_TradeSkillUI.SetRecipeTracked(recipeID, false, recipe.isRecraft)
     end
     TTQ:RefreshTracker()
   end

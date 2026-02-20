@@ -656,7 +656,7 @@ do
         "CRAFTINGORDERS_RECIPE_LIST_UPDATE",
     }
     for _, ev in ipairs(questEvents) do
-        qf:RegisterEvent(ev)
+        pcall(qf.RegisterEvent, qf, ev)
     end
     qf:SetScript("OnEvent", function()
         if not TTQ._refreshTimer then
@@ -683,7 +683,7 @@ do
         "UPDATE_INSTANCE_INFO",
     }
     for _, ev in ipairs(scenarioEvents) do
-        sf:RegisterEvent(ev)
+        pcall(sf.RegisterEvent, sf, ev)
     end
     sf:SetScript("OnEvent", function()
         if not TTQ._refreshTimer then

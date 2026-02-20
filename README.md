@@ -15,12 +15,12 @@ A clean, modern quest tracker replacement for World of Warcraft. It ditches the 
 
 ## Slash Commands
 
-| Command | Description |
-|---|---|
-| `/ttq` | Open the settings panel |
-| `/ttq reset` | Reset all settings to defaults |
-| `/ttq toggle` | Show or hide the tracker |
-| `/ttq zone` | Toggle the current-zone filter |
+| Command       | Description                    |
+| ------------- | ------------------------------ |
+| `/ttq`        | Open the settings panel        |
+| `/ttq reset`  | Reset all settings to defaults |
+| `/ttq toggle` | Show or hide the tracker       |
+| `/ttq zone`   | Toggle the current-zone filter |
 
 ## Installation
 
