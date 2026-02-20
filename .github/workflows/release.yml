@@ -15,8 +15,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.repository.default_branch }}
 
       - name: Extract version from tag
         id: version
@@ -25,43 +23,9 @@ jobs:
           echo "version=$TAG" >> "$GITHUB_OUTPUT"
           echo "Releasing version: $TAG"
 
-          # Validate semver format
-          if ! [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Tag must be valid semver (e.g. v1.2.3)"
-            exit 1
-          fi
-
-      - name: Update version in .toc
-        run: |
-          sed -i "s/^## Version: .*/## Version: ${{ steps.version.outputs.version }}/" TommyTwoquests.toc
-
-      - name: Commit version bump
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add TommyTwoquests.toc
-          # Only commit if version actually changed
-          git diff --cached --quiet && echo "Version already up to date" || {
-            git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
-            git push
-          }
-
-      - name: Update tag to include version bump commit
-        run: |
-          git tag -f "v${{ steps.version.outputs.version }}"
-          git push origin "v${{ steps.version.outputs.version }}" --force
-
       - name: Bundle addon zip
         run: |
-          ADDON_DIR="TommyTwoquests"
-          mkdir -p "$ADDON_DIR"
-          # Copy only addon files — exclude CI, git, and build artifacts
-          rsync -a \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude="$ADDON_DIR" \
-            . "$ADDON_DIR/"
-          zip -r "TommyTwoquests-${{ steps.version.outputs.version }}.zip" "$ADDON_DIR"
+          zip -r "TommyTwoquests-${{ steps.version.outputs.version }}.zip" TommyTwoquests/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

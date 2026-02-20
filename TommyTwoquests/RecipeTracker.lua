@@ -92,6 +92,7 @@ function TTQ:CreateRecipeItem(parent)
   local nameColor = TTQ:GetSetting("questNameColor")
   local name = TTQ:CreateText(frame, nameSize, nameColor, "LEFT")
   name:SetPoint("TOPLEFT", frame, "TOPLEFT", RECIPE_ICON_WIDTH + 4, 0)
+  name:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
   name:SetHeight(RECIPE_NAME_ROW_HEIGHT)
   name:SetWordWrap(false)
   name:SetNonSpaceWrap(false)
@@ -105,36 +106,6 @@ function TTQ:CreateRecipeItem(parent)
   expandInd:SetText("+")
   expandInd:Hide()
   item.expandInd = expandInd
-
-  -- AH search icon (magnifying glass)
-  local searchBtn = CreateFrame("Button", nil, frame)
-  searchBtn:SetSize(14, 14)
-  searchBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -2, -3)
-  searchBtn:SetFrameLevel(frame:GetFrameLevel() + 2)
-
-  local searchIcon = searchBtn:CreateTexture(nil, "ARTWORK")
-  searchIcon:SetAllPoints()
-  searchIcon:SetAtlas("common-search-magnifyingglass", false)
-  searchIcon:SetVertexColor(1, 1, 1)
-  searchBtn.icon = searchIcon
-
-  searchBtn:SetScript("OnEnter", function(self)
-    searchIcon:SetVertexColor(1, 0.82, 0)
-    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-    GameTooltip:SetText("Search Auction House", 1, 0.82, 0)
-    GameTooltip:AddLine("Search for missing reagents", 0.7, 0.7, 0.7)
-    GameTooltip:Show()
-  end)
-  searchBtn:SetScript("OnLeave", function()
-    searchIcon:SetVertexColor(1, 1, 1)
-    GameTooltip:Hide()
-  end)
-  searchBtn:RegisterForClicks("LeftButtonUp")
-  searchBtn:Hide()
-  item.searchBtn = searchBtn
-
-  -- Adjust name right anchor to leave room for search icon
-  name:SetPoint("RIGHT", searchBtn, "LEFT", -2, 0)
 
   -- Click handler: left = collapse/expand; right = context menu
   frame:SetScript("OnClick", function(self, button)
@@ -154,40 +125,16 @@ function TTQ:CreateRecipeItem(parent)
     end
   end)
 
-  -- Hover: smooth class-color text transition (matches quest name hover)
+  -- Hover: tooltip
   frame:SetScript("OnEnter", function(self)
     local recipeData = item.recipeData
     if not recipeData then return end
-    -- Track hovered recipe globally so recycled items can restore hover state
-    TTQ._hoveredRecipeID = recipeData.recipeID
-    -- Animate text color toward class color
-    local cr, cg, cb = TTQ:GetClassColor()
-    item._hoverTargetR, item._hoverTargetG, item._hoverTargetB = cr, cg, cb
-    item._hoverDirection = 1
-    item._hoverAnimStart = GetTime()
-    item._hoverAnimFrom = item._hoverAnimT or 0
-    item.frame:SetScript("OnUpdate", function(f)
-      local elapsed = GetTime() - (item._hoverAnimStart or 0)
-      local raw = math.min(elapsed / 0.18, 1)
-      local eased = 1 - (1 - raw) ^ 2
-      if item._hoverDirection == 1 then
-        item._hoverAnimT = item._hoverAnimFrom + (1 - item._hoverAnimFrom) * eased
-      else
-        item._hoverAnimT = item._hoverAnimFrom * (1 - eased)
-      end
-      local t = item._hoverAnimT
-      local nr = item._nameColorR + (item._hoverTargetR - item._nameColorR) * t
-      local ng = item._nameColorG + (item._hoverTargetG - item._nameColorG) * t
-      local nb = item._nameColorB + (item._hoverTargetB - item._nameColorB) * t
-      item.name:SetTextColor(nr, ng, nb)
-      if raw >= 1 then f:SetScript("OnUpdate", nil) end
-    end)
-    -- Tooltip
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     GameTooltip:SetText(recipeData.name, 1, 1, 1)
     if recipeData.professionName and recipeData.professionName ~= "" then
       GameTooltip:AddLine(recipeData.professionName, 0.6, 0.6, 0.8)
     end
+    -- Show reagent summary
     if recipeData.reagents and #recipeData.reagents > 0 then
       GameTooltip:AddLine(" ")
       GameTooltip:AddLine("Reagents:", 0.8, 0.8, 0.8)
@@ -207,35 +154,7 @@ function TTQ:CreateRecipeItem(parent)
     GameTooltip:AddLine("Right-click: Menu", 0.5, 0.8, 1)
     GameTooltip:Show()
   end)
-
-  frame:SetScript("OnLeave", function(self)
-    GameTooltip:Hide()
-    if self:IsVisible() then
-      TTQ._hoveredRecipeID = nil
-    end
-    -- Animate text color back to normal
-    local cr, cg, cb = TTQ:GetClassColor()
-    item._hoverTargetR, item._hoverTargetG, item._hoverTargetB = cr, cg, cb
-    item._hoverDirection = 0
-    item._hoverAnimStart = GetTime()
-    item._hoverAnimFrom = item._hoverAnimT or 1
-    item.frame:SetScript("OnUpdate", function(f)
-      local elapsed = GetTime() - (item._hoverAnimStart or 0)
-      local raw = math.min(elapsed / 0.18, 1)
-      local eased = 1 - (1 - raw) ^ 2
-      item._hoverAnimT = item._hoverAnimFrom * (1 - eased)
-      local t = item._hoverAnimT
-      local nr = item._nameColorR + (item._hoverTargetR - item._nameColorR) * t
-      local ng = item._nameColorG + (item._hoverTargetG - item._nameColorG) * t
-      local nb = item._nameColorB + (item._hoverTargetB - item._nameColorB) * t
-      item.name:SetTextColor(nr, ng, nb)
-      if raw >= 1 then
-        f:SetScript("OnUpdate", nil)
-        item.name:SetTextColor(item._nameColorR, item._nameColorG, item._nameColorB)
-        item._hoverAnimT = 0
-      end
-    end)
-  end)
+  frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
   return item
 end
@@ -332,24 +251,12 @@ function TTQ:UpdateRecipeItem(item, recipe, parentWidth)
     item.icon:Show()
     item.name:ClearAllPoints()
     item.name:SetPoint("TOPLEFT", item.frame, "TOPLEFT", RECIPE_ICON_WIDTH + 4, 0)
-    item.name:SetPoint("RIGHT", item.searchBtn, "LEFT", -2, 0)
+    item.name:SetPoint("RIGHT", item.frame, "RIGHT", -4, 0)
   else
     item.icon:Hide()
     item.name:ClearAllPoints()
     item.name:SetPoint("TOPLEFT", item.frame, "TOPLEFT", RECIPE_ICON_WIDTH + 2, 0)
-    item.name:SetPoint("RIGHT", item.searchBtn, "LEFT", -2, 0)
-  end
-
-  -- AH search icon: show only when Auctionator is available and reagents are still needed
-  local ahAvailable = self:IsAuctionatorAvailable()
-  local allReady = recipe.allReagentsReady
-  if ahAvailable and not allReady then
-    item.searchBtn:SetScript("OnClick", function()
-      TTQ:SearchAuctionatorForRecipe(recipe)
-    end)
-    item.searchBtn:Show()
-  else
-    item.searchBtn:Hide()
+    item.name:SetPoint("RIGHT", item.frame, "RIGHT", -4, 0)
   end
 
   -- Collapse indicator
@@ -367,28 +274,13 @@ function TTQ:UpdateRecipeItem(item, recipe, parentWidth)
   item.name:SetText(recipe.name or "Unknown Recipe")
 
   -- Color: show as complete color if all reagents are satisfied
-  local nameColor = self:GetSetting("questNameColor")
-  if recipe.allReagentsReady then
+  local allReady = recipe.allReagentsReady
+  if allReady then
     local ec = self:GetSetting("objectiveCompleteColor")
-    item._nameColorR = ec.r
-    item._nameColorG = ec.g
-    item._nameColorB = ec.b
+    item.name:SetTextColor(ec.r, ec.g, ec.b)
   else
-    item._nameColorR = nameColor.r
-    item._nameColorG = nameColor.g
-    item._nameColorB = nameColor.b
-  end
-
-  -- If this recipe is currently hovered (even after pool recycle), snap to class color
-  if TTQ._hoveredRecipeID and TTQ._hoveredRecipeID == recipe.recipeID then
-    local cr, cg, cb = self:GetClassColor()
-    item.name:SetTextColor(cr, cg, cb)
-    item._hoverAnimT = 1
-    item._hoverTargetR = cr
-    item._hoverTargetG = cg
-    item._hoverTargetB = cb
-  else
-    item.name:SetTextColor(item._nameColorR, item._nameColorG, item._nameColorB)
+    local nc = self:GetSetting("questNameColor")
+    item.name:SetTextColor(nc.r, nc.g, nc.b)
   end
 
   -- Width
@@ -658,6 +550,7 @@ end
 -- reagentList: { { name = "Item Name", itemID = 12345, needed = 5, have = 2 }, ... }
 function TTQ:SearchAuctionator(reagentList)
   if not self:IsAuctionatorAvailable() then
+    print("|cff00ccffTommyTwoquests|r: Auctionator is not installed or not loaded.")
     return
   end
 
@@ -671,6 +564,7 @@ function TTQ:SearchAuctionator(reagentList)
   end
 
   if #searchTerms == 0 then
+    print("|cff00ccffTommyTwoquests|r: All reagents already collected!")
     return
   end
 
@@ -686,7 +580,10 @@ function TTQ:SearchAuctionator(reagentList)
       "TommyTwoquests", searchTerms)
   end
 
-  if not ok then
+  if ok then
+    print("|cff00ccffTommyTwoquests|r: Searching AH for "
+      .. #searchTerms .. " reagent(s)...")
+  else
     -- Fallback: try individual search
     if Auctionator.API.v1.MultiSearchAdvanced then
       local searchList = {}
@@ -695,6 +592,9 @@ function TTQ:SearchAuctionator(reagentList)
       end
       pcall(Auctionator.API.v1.MultiSearchAdvanced,
         "TommyTwoquests", searchList)
+    else
+      print("|cff00ccffTommyTwoquests|r: Could not search AH. "
+        .. (err or "Unknown error"))
     end
   end
 end
