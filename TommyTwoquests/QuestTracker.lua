@@ -116,6 +116,12 @@ local function AcquireGroupContainer(parent)
     local gc = groupContainerPool:Acquire(parent)
     gc.frame:SetHeight(100)
     gc.contentFrame:SetAlpha(1)
+    -- Hide any orphaned child frames left on the contentFrame from a
+    -- previous layout cycle (belt-and-suspenders against stale rows).
+    local children = { gc.contentFrame:GetChildren() }
+    for _, child in ipairs(children) do
+        child:Hide()
+    end
     gc.header = nil
     gc.questItems = gc.questItems or {}
     wipe(gc.questItems)

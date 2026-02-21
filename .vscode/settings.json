@@ -29,6 +29,7 @@
     "COMBATLOG_OBJECT_AFFILIATION_MINE",
     "COMBATLOG_OBJECT_AFFILIATION_PARTY",
     "class",
-    "LFGListUtil_FindQuestGroup"
+    "LFGListUtil_FindQuestGroup",
+    "UISpecialFrames"
   ]
 }

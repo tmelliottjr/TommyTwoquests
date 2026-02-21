@@ -38,13 +38,19 @@ MP.OVERTIME_BUFFER                                                              
 
 -- Colors
 MP.Colors                                                                             = {
-  timerPlenty    = { r = 0.40, g = 1.00, b = 0.40 }, -- green: lots of time
-  timerOk        = { r = 1.00, g = 0.82, b = 0.00 }, -- gold: moderate
-  timerLow       = { r = 1.00, g = 0.40, b = 0.20 }, -- orange-red: low
+  timerPlenty    = { r = 0.64, g = 0.21, b = 0.93 }, -- epic purple: lots of time
+  timerOk        = { r = 0.00, g = 0.44, b = 0.87 }, -- rare blue: moderate
+  timerLow       = { r = 0.12, g = 1.00, b = 0.00 }, -- common green: getting tight
   timerOver      = { r = 0.80, g = 0.20, b = 0.20 }, -- red: over time
   chestActive    = { r = 1.00, g = 0.82, b = 0.00 }, -- gold: still achievable
   chestLost      = { r = 0.40, g = 0.40, b = 0.40 }, -- grey: no longer possible
   chestEarned    = { r = 0.20, g = 0.80, b = 0.40 }, -- emerald: earned
+  chest3         = { r = 0.64, g = 0.21, b = 0.93 }, -- epic purple: +3 tier
+  chest2         = { r = 0.00, g = 0.44, b = 0.87 }, -- rare blue: +2 tier
+  chest1         = { r = 0.12, g = 1.00, b = 0.00 }, -- common green: +1 tier
+  bar3           = { r = 0.42, g = 0.18, b = 0.60 }, -- muted purple: +3 bar fill
+  bar2           = { r = 0.08, g = 0.32, b = 0.58 }, -- muted blue: +2 bar fill
+  bar1           = { r = 0.15, g = 0.55, b = 0.10 }, -- muted green: +1 bar fill
   trashBar       = { r = 0.48, g = 0.58, b = 0.82 }, -- soft blue
   trashBarFull   = { r = 0.20, g = 0.80, b = 0.40 }, -- emerald when 100%
   trashBg        = { r = 0.12, g = 0.12, b = 0.14 }, -- bar background
@@ -423,25 +429,13 @@ local function GetTimerColor(remaining, total)
   end
   local ratio = remaining / total
   if ratio > 0.5 then
-    return MP.Colors.timerPlenty
+    return MP.Colors.timerPlenty -- epic purple: lots of time
   elseif ratio > 0.25 then
-    -- Lerp green → gold
-    local t = (ratio - 0.25) / 0.25
-    return {
-      r = MP.Colors.timerPlenty.r + (MP.Colors.timerOk.r - MP.Colors.timerPlenty.r) * (1 - t),
-      g = MP.Colors.timerPlenty.g + (MP.Colors.timerOk.g - MP.Colors.timerPlenty.g) * (1 - t),
-      b = MP.Colors.timerPlenty.b + (MP.Colors.timerOk.b - MP.Colors.timerPlenty.b) * (1 - t),
-    }
+    return MP.Colors.timerOk     -- rare blue: moderate
   elseif ratio > 0.1 then
-    -- Lerp gold → orange-red
-    local t = (ratio - 0.1) / 0.15
-    return {
-      r = MP.Colors.timerOk.r + (MP.Colors.timerLow.r - MP.Colors.timerOk.r) * (1 - t),
-      g = MP.Colors.timerOk.g + (MP.Colors.timerLow.g - MP.Colors.timerOk.g) * (1 - t),
-      b = MP.Colors.timerOk.b + (MP.Colors.timerLow.b - MP.Colors.timerOk.b) * (1 - t),
-    }
+    return MP.Colors.timerLow    -- common green: getting tight
   else
-    return MP.Colors.timerLow
+    return MP.Colors.timerOver   -- red: almost out
   end
 end
 
@@ -644,6 +638,18 @@ local function CreateMPDisplay(parent, width)
     GameTooltip:SetOwner(deathRow, "ANCHOR_BOTTOMLEFT")
     GameTooltip:SetText("Death Log", 0.90, 0.30, 0.30)
     if #mpState.deathLog > 0 then
+      -- Attempt to retroactively resolve any "Unknown" entries
+      for _, entry in ipairs(mpState.deathLog) do
+        if entry.name == "Unknown" and not entry.class then
+          -- Try to find an unattributed dead party member
+          local resolvedName, resolvedClass = TTQ:FindDeadPartyMember()
+          if resolvedName then
+            entry.name = resolvedName
+            entry.class = resolvedClass
+          end
+        end
+      end
+
       -- Aggregate deaths per player: { name, class, count, totalPenalty }
       local byPlayer = {} -- name -> { class, count }
       local order = {}    -- insertion-order of names
@@ -653,6 +659,10 @@ local function CreateMPDisplay(parent, width)
           order[#order + 1] = entry.name
         end
         byPlayer[entry.name].count = byPlayer[entry.name].count + 1
+        -- Upgrade class if a later entry has it
+        if entry.class and not byPlayer[entry.name].class then
+          byPlayer[entry.name].class = entry.class
+        end
       end
       for _, pName in ipairs(order) do
         local info = byPlayer[pName]
@@ -662,16 +672,22 @@ local function CreateMPDisplay(parent, width)
           cr, cg, cb = cc.r, cc.g, cc.b
         end
         local penalty = info.count * DEATH_PENALTY_PER
-        local line = pName .. "  x" .. info.count .. "  |cff888888(+" .. penalty .. "s)|r"
+        local displayName = pName == "Unknown" and "|cff666666Unknown|r" or pName
+        local line = displayName .. "  x" .. info.count .. "  |cff888888(+" .. penalty .. "s)|r"
         GameTooltip:AddLine(line, cr, cg, cb)
       end
-      -- Total summary
-      local totalPenalty = #mpState.deathLog * DEATH_PENALTY_PER
+      -- Total summary — use API count as authoritative
+      local totalDeaths = #mpState.deathLog
+      if C_ChallengeMode and C_ChallengeMode.GetDeathCount then
+        local apiDeaths = C_ChallengeMode.GetDeathCount() or 0
+        if apiDeaths > totalDeaths then totalDeaths = apiDeaths end
+      end
+      local totalPenalty = totalDeaths * DEATH_PENALTY_PER
       GameTooltip:AddLine(" ")
       GameTooltip:AddLine(
-        #mpState.deathLog ..
+        totalDeaths ..
         " total " ..
-        (#mpState.deathLog == 1 and "death" or "deaths") .. "  |  +" .. FormatTime(totalPenalty) .. " penalty",
+        (totalDeaths == 1 and "death" or "deaths") .. "  |  +" .. FormatTime(totalPenalty) .. " penalty",
         0.6,
         0.6, 0.6)
     else
@@ -695,7 +711,7 @@ local function CreateMPDisplay(parent, width)
   -- 5. Enemy forces bar — taller bar with prominent percentage
   ----------------------------------------------------------------
   local trashRow = CreateFrame("Frame", nil, f)
-  trashRow:SetHeight(32)
+  trashRow:SetHeight(28)
   el.trashRow = trashRow
 
   -- Label row: "Enemy Forces" on the left, percentage right next to it
@@ -708,17 +724,17 @@ local function CreateMPDisplay(parent, width)
   trashPct:SetPoint("LEFT", trashLabel, "RIGHT", 6, 0)
   el.trashPct = trashPct
 
-  -- Progress bar background (taller for visibility)
+  -- Progress bar background
   local barBg = trashRow:CreateTexture(nil, "BACKGROUND")
-  barBg:SetHeight(10)
-  barBg:SetPoint("BOTTOMLEFT", trashRow, "BOTTOMLEFT", 0, 1)
-  barBg:SetPoint("BOTTOMRIGHT", trashRow, "BOTTOMRIGHT", 0, 1)
+  barBg:SetHeight(6)
+  barBg:SetPoint("BOTTOMLEFT", trashRow, "BOTTOMLEFT", 0, 0)
+  barBg:SetPoint("BOTTOMRIGHT", trashRow, "BOTTOMRIGHT", 0, 0)
   barBg:SetColorTexture(MP.Colors.trashBg.r, MP.Colors.trashBg.g, MP.Colors.trashBg.b, 0.6)
   el.barBg = barBg
 
   -- Progress bar fill
   local barFill = trashRow:CreateTexture(nil, "ARTWORK")
-  barFill:SetHeight(10)
+  barFill:SetHeight(6)
   barFill:SetPoint("BOTTOMLEFT", barBg, "BOTTOMLEFT", 0, 0)
   barFill:SetWidth(1)
   barFill:SetColorTexture(MP.Colors.trashBar.r, MP.Colors.trashBar.g, MP.Colors.trashBar.b, 0.9)
@@ -732,7 +748,7 @@ local function CreateMPDisplay(parent, width)
   ----------------------------------------------------------------
   -- 7. Affixes container (individual buttons with tooltips)
   ----------------------------------------------------------------
-  local affixRow = CreateFrame("Frame", nil, f)
+  local affixRow = CreateFrame("Frame", nil, headerRow)
   affixRow:SetHeight(14)
   el.affixRow = affixRow
 
@@ -767,7 +783,15 @@ local function EnsureBossItem(el, parent, index)
   row:SetHeight(16)
   boss.frame = row
 
-  -- Dash / checkmark
+  -- Checkmark texture (shown when completed)
+  local checkmark = row:CreateTexture(nil, "ARTWORK")
+  checkmark:SetSize(objSize, objSize)
+  checkmark:SetPoint("LEFT", row, "LEFT", 0, 0)
+  checkmark:SetTexture("Interface\\AddOns\\TommyTwoquests\\Textures\\checkmark")
+  checkmark:Hide()
+  boss.checkmark = checkmark
+
+  -- Dash (shown when incomplete)
   local dash = TTQ:CreateText(row, objSize, MP.Colors.bossIncomplete, "LEFT")
   dash:SetPoint("LEFT", row, "LEFT", 0, 0)
   dash:SetWidth(10)
@@ -818,7 +842,6 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
     el.headerIcon:SetSize(iconSize + 4, iconSize + 4)
   else
     el.headerIcon:Hide()
-    el.headerText:SetPoint("LEFT", el.headerRow, "LEFT", 0, 0)
   end
 
   el.headerRow:ClearAllPoints()
@@ -827,19 +850,22 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
   y = y + 24 -- header height + gap
 
   ----------------------------------------------------------------
-  -- Affixes (icon-only circles with border, tooltip on hover)
+  -- Affixes (inline with header, icon-only with tooltip on hover)
   ----------------------------------------------------------------
   if #data.affixes > 0 then
-    local AFFIX_ICON_SIZE = 20
-    local AFFIX_SPACING = 5
-    -- Center the row of icons
-    local totalAffixWidth = #data.affixes * AFFIX_ICON_SIZE + (#data.affixes - 1) * AFFIX_SPACING
-    local startX = math.max(0, math.floor((width - totalAffixWidth) / 2))
+    local AFFIX_ICON_SIZE = 14
+    local AFFIX_SPACING = -5 -- negative for overlapping avatar-list style
+    local totalAffixWidth = #data.affixes * AFFIX_ICON_SIZE + (#data.affixes - 1) * math.max(0, AFFIX_SPACING)
+    -- Recalculate for overlap: each icon after the first adds (ICON_SIZE + SPACING) pixels
+    if AFFIX_SPACING < 0 then
+      totalAffixWidth = AFFIX_ICON_SIZE + math.max(0, #data.affixes - 1) * (AFFIX_ICON_SIZE + AFFIX_SPACING)
+    end
 
+    -- Position inline in header row, to the left of the key badge
     el.affixRow:ClearAllPoints()
-    el.affixRow:SetPoint("TOPLEFT", mpFrame, "TOPLEFT", 0, -y)
-    el.affixRow:SetPoint("TOPRIGHT", mpFrame, "TOPRIGHT", 0, -y)
-    el.affixRow:SetHeight(AFFIX_ICON_SIZE + 2)
+    el.affixRow:SetPoint("RIGHT", el.keyBadge, "LEFT", -5, 0)
+    el.affixRow:SetHeight(AFFIX_ICON_SIZE)
+    el.affixRow:SetWidth(totalAffixWidth)
     el.affixRow:Show()
 
     for idx, aff in ipairs(data.affixes) do
@@ -892,6 +918,12 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
 
       local btn = el.affixButtons[idx]
       btn:SetSize(AFFIX_ICON_SIZE, AFFIX_ICON_SIZE)
+      if btn.border then
+        btn.border:SetSize(AFFIX_ICON_SIZE + 2, AFFIX_ICON_SIZE + 2)
+      end
+      if btn.borderMask then
+        btn.borderMask:SetSize(AFFIX_ICON_SIZE + 2, AFFIX_ICON_SIZE + 2)
+      end
 
       -- Set icon texture
       if aff.icon and btn.icon then
@@ -899,10 +931,12 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
         btn.icon:Show()
       end
 
-      -- Position
-      local xPos = startX + (idx - 1) * (AFFIX_ICON_SIZE + AFFIX_SPACING)
+      -- Position within the header-inline affix row (overlapping avatar-list style)
+      local xPos = (idx - 1) * (AFFIX_ICON_SIZE + AFFIX_SPACING)
       btn:ClearAllPoints()
-      btn:SetPoint("TOPLEFT", el.affixRow, "TOPLEFT", xPos, 0)
+      btn:SetPoint("LEFT", el.affixRow, "LEFT", xPos, 0)
+      -- Stack frame levels so the first icon is on top (avatar-list effect)
+      btn:SetFrameLevel(el.affixRow:GetFrameLevel() + (#data.affixes - idx + 1))
       btn:Show()
 
       -- Tooltip with affix name + description
@@ -944,8 +978,6 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
         end
       end
     end
-
-    y = y + AFFIX_ICON_SIZE + 4
   else
     el.affixRow:Hide()
     if el.affixButtons then
@@ -953,6 +985,19 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
         if v.Hide then v:Hide() end
       end
     end
+  end
+
+  -- Adjust header text boundaries after affix positioning
+  el.headerText:ClearAllPoints()
+  if self:GetSetting("showIcons") and el.headerIcon:IsShown() then
+    el.headerText:SetPoint("LEFT", el.headerIcon, "RIGHT", 5, 0)
+  else
+    el.headerText:SetPoint("LEFT", el.headerRow, "LEFT", 0, 0)
+  end
+  if #data.affixes > 0 then
+    el.headerText:SetPoint("RIGHT", el.affixRow, "LEFT", -4, 0)
+  else
+    el.headerText:SetPoint("RIGHT", el.headerRow, "RIGHT", -30, 0)
   end
 
   ----------------------------------------------------------------
@@ -973,7 +1018,7 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
   el.timerRow:ClearAllPoints()
   el.timerRow:SetPoint("TOPLEFT", mpFrame, "TOPLEFT", 0, -y)
   el.timerRow:SetPoint("TOPRIGHT", mpFrame, "TOPRIGHT", 0, -y)
-  y = y + 22
+  y = y + 28 -- extra gap so +3/+2/+1 labels don't touch the remaining text
 
   ----------------------------------------------------------------
   -- Timer progress bar
@@ -984,8 +1029,17 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
   local fillRatio = barRange > 0 and math.min(data.elapsed / barRange, 1.0) or 0
   local fillWidth = math.max(1, fillRatio * barTotalWidth)
 
-  -- Color the fill based on which chest tier we're in
-  local barColor = GetTimerColor(data.remaining, data.timeLimit)
+  -- Bar fill: muted rarity color matching current chest tier, red when over time
+  local barColor
+  if data.isOverTime then
+    barColor = MP.Colors.timerOver
+  elseif data.chestTimers[1] and data.elapsed <= data.chestTimers[1].limit then
+    barColor = MP.Colors.bar3 -- still on pace for +3
+  elseif data.chestTimers[2] and data.elapsed <= data.chestTimers[2].limit then
+    barColor = MP.Colors.bar2 -- missed +3, still on pace for +2
+  else
+    barColor = MP.Colors.bar1 -- missed +2, running for +1
+  end
   el.timerBarFill:SetWidth(fillWidth)
   el.timerBarFill:SetColorTexture(barColor.r, barColor.g, barColor.b, 0.85)
 
@@ -1003,13 +1057,9 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
       tick.line:SetPoint("BOTTOM", el.timerBarBg, "BOTTOMLEFT", tickX, -1)
       tick.line:Show()
 
-      -- Tick color: earned (green), active (gold), lost (grey)
-      local tickColor
-      if data.elapsed <= ct.limit then
-        tickColor = (data.elapsed > 0 and ct.remaining < 30) and MP.Colors.timerLow or MP.Colors.chestActive
-      else
-        tickColor = MP.Colors.chestLost
-      end
+      -- Tick color: fixed rarity color per tier (+3=purple, +2=blue, +1=green), greyed when lost
+      local tierColors = { MP.Colors.chest3, MP.Colors.chest2, MP.Colors.chest1 }
+      local tickColor = data.elapsed <= ct.limit and tierColors[i] or MP.Colors.chestLost
       tick.line:SetColorTexture(tickColor.r, tickColor.g, tickColor.b, 0.7)
 
       TTQ:SafeSetFont(tick.label, objFont, objSize - 3, objOutline)
@@ -1037,18 +1087,9 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
     local ci = el.chestIndicators[i]
     local ct = data.chestTimers[i]
     if ci and ct then
-      local color
-      if ct.remaining > 0 and not data.isOverTime then
-        if data.elapsed > 0 and ct.remaining < 30 then
-          color = MP.Colors.timerLow
-        else
-          color = MP.Colors.chestActive
-        end
-      elseif ct.remaining <= 0 and data.elapsed <= ct.limit then
-        color = MP.Colors.chestEarned
-      else
-        color = MP.Colors.chestLost
-      end
+      -- Fixed rarity color per tier (+3=purple, +2=blue, +1=green), greyed when lost
+      local tierColors = { MP.Colors.chest3, MP.Colors.chest2, MP.Colors.chest1 }
+      local color = data.elapsed <= ct.limit and tierColors[i] or MP.Colors.chestLost
 
       TTQ:SafeSetFont(ci.label, objFont, objSize, objOutline)
       TTQ:SafeSetFont(ci.timeLabel, objFont, objSize - 1, objOutline)
@@ -1073,7 +1114,7 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
       ci.frame:Show()
     end
   end
-  y = y + 16
+  y = y + 24 -- extra breathing room below timeline
 
   ----------------------------------------------------------------
   -- Deaths (only show if > 0)
@@ -1106,10 +1147,22 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
     local pctFontSize = objSize + 2
     TTQ:SafeSetFont(el.trashPct, objFont, pctFontSize, objOutline)
 
-    local pctStr = string.format("%.1f%%", data.enemyPct)
+    local pctStr = string.format("%.2f%%", data.enemyPct)
     el.trashPct:SetText(pctStr)
 
-    local barColor = data.enemyComplete and MP.Colors.trashBarFull or MP.Colors.trashBar
+    -- Use the player's class color for the bar fill
+    local barColor
+    if data.enemyComplete then
+      barColor = MP.Colors.trashBarFull
+    else
+      local _, classToken = UnitClass("player")
+      if classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken] then
+        local cc = RAID_CLASS_COLORS[classToken]
+        barColor = { r = cc.r, g = cc.g, b = cc.b }
+      else
+        barColor = MP.Colors.trashBar
+      end
+    end
     -- Bright white percentage text so it stands out
     if data.enemyComplete then
       el.trashPct:SetTextColor(MP.Colors.trashBarFull.r, MP.Colors.trashBarFull.g, MP.Colors.trashBarFull.b)
@@ -1128,7 +1181,7 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
     el.trashRow:SetPoint("TOPLEFT", mpFrame, "TOPLEFT", 0, -y)
     el.trashRow:SetPoint("TOPRIGHT", mpFrame, "TOPRIGHT", 0, -y)
     el.trashRow:Show()
-    y = y + 34 -- taller row to accommodate the bigger bar
+    y = y + 38 -- row height + extra spacing before bosses
   else
     el.trashRow:Hide()
   end
@@ -1146,13 +1199,27 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
     if boss.completed then
       local c = completeColor
       bossItem.name:SetTextColor(c.r, c.g, c.b)
-      bossItem.dash:SetText("|TInterface\\AddOns\\TommyTwoquests\\Textures\\checkmark:" .. objSize .. "|t")
-      bossItem.dash:SetTextColor(c.r, c.g, c.b)
+      if bossItem.checkmark then
+        bossItem.checkmark:SetSize(objSize, objSize)
+        bossItem.checkmark:SetVertexColor(c.r, c.g, c.b)
+        bossItem.checkmark:Show()
+      end
+      bossItem.dash:Hide()
+      bossItem.name:ClearAllPoints()
+      bossItem.name:SetPoint("LEFT", bossItem.checkmark or bossItem.dash, "RIGHT", 3, 0)
+      bossItem.name:SetPoint("RIGHT", bossItem.frame, "RIGHT", 0, 0)
     else
       local c = incompleteColor
       bossItem.name:SetTextColor(c.r, c.g, c.b)
+      if bossItem.checkmark then
+        bossItem.checkmark:Hide()
+      end
+      bossItem.dash:Show()
       bossItem.dash:SetText("-")
       bossItem.dash:SetTextColor(c.r, c.g, c.b)
+      bossItem.name:ClearAllPoints()
+      bossItem.name:SetPoint("LEFT", bossItem.dash, "RIGHT", 3, 0)
+      bossItem.name:SetPoint("RIGHT", bossItem.frame, "RIGHT", 0, 0)
     end
 
     bossItem.frame:ClearAllPoints()
@@ -1252,7 +1319,7 @@ function TTQ:StartMythicPlusTimer()
     local rc = remColor or timerColor
     mpElements.timerRemaining:SetTextColor(rc.r, rc.g, rc.b)
 
-    -- Progress bar fill
+    -- Progress bar fill: muted rarity color matching current chest tier
     if mpElements.timerBarFill and mpElements.timerBarBg then
       local barWidth = mpElements.timerBarBg:GetWidth()
       if barWidth and barWidth > 0 then
@@ -1261,23 +1328,30 @@ function TTQ:StartMythicPlusTimer()
             and math.min(data.elapsed / barRange, 1.0) or 0
         local fillW = math.max(1, fillRatio * barWidth)
         mpElements.timerBarFill:SetWidth(fillW)
-        mpElements.timerBarFill:SetColorTexture(
-          timerColor.r, timerColor.g, timerColor.b, 0.85)
+        local barC
+        if data.isOverTime then
+          barC = MP.Colors.timerOver
+        elseif data.chestTimers[1] and data.elapsed <= data.chestTimers[1].limit then
+          barC = MP.Colors.bar3
+        elseif data.chestTimers[2] and data.elapsed <= data.chestTimers[2].limit then
+          barC = MP.Colors.bar2
+        else
+          barC = MP.Colors.bar1
+        end
+        mpElements.timerBarFill:SetColorTexture(barC.r, barC.g, barC.b, 0.85)
       end
     end
 
-    -- Chest tier tick marks + remaining times
+    -- Chest tier tick marks + remaining times (fixed rarity colors)
+    local tierColorsLive = { MP.Colors.chest3, MP.Colors.chest2, MP.Colors.chest1 }
     for i = 1, 3 do
       local ci = mpElements.chestIndicators[i]
       local ct = data.chestTimers[i]
       if ci and ct then
-        local color
+        local color = data.elapsed <= ct.limit and tierColorsLive[i] or MP.Colors.chestLost
         if ct.active then
-          color = ct.remaining < 30 and MP.Colors.timerLow or MP.Colors.chestActive
           ci.timeLabel:SetText(FormatTime(ct.remaining))
         else
-          color = (data.elapsed <= ct.limit)
-              and MP.Colors.chestEarned or MP.Colors.chestLost
           ci.timeLabel:SetText(FormatTime(ct.limit))
         end
         ci.label:SetTextColor(color.r, color.g, color.b)
@@ -1287,13 +1361,7 @@ function TTQ:StartMythicPlusTimer()
       -- Update tick mark colors
       local tick = mpElements.timerBarTicks and mpElements.timerBarTicks[i]
       if tick and ct then
-        local tickColor
-        if data.elapsed <= ct.limit then
-          tickColor = (ct.remaining < 30)
-              and MP.Colors.timerLow or MP.Colors.chestActive
-        else
-          tickColor = MP.Colors.chestLost
-        end
+        local tickColor = data.elapsed <= ct.limit and tierColorsLive[i] or MP.Colors.chestLost
         tick.line:SetColorTexture(tickColor.r, tickColor.g, tickColor.b, 0.7)
         tick.label:SetTextColor(tickColor.r, tickColor.g, tickColor.b)
       end
@@ -1403,21 +1471,36 @@ do
       -- SecretWhenUnitIdentityRestricted: skip secret (non-party) GUIDs
       if issecretvalue and issecretvalue(guid) then return end
 
+      -- Only handle Player-type GUIDs (skip mobs, pets, NPCs)
+      if not guid:match("^Player%-") then return end
+
       -- Must be in an active or just-completed run
       local _, instanceType, difficultyID = GetInstanceInfo()
       if not (difficultyID == 8 and instanceType == "party") and not mpState.runCompleted then return end
 
-      -- Resolve name and class — try direct API first, then scan party GUIDs
+      -- Resolve name and class using multiple strategies
       local destName, classToken
 
-      -- Try UnitNameFromGUID / UnitClassFromGUID (12.0 API)
-      if UnitNameFromGUID then destName = UnitNameFromGUID(guid) end
-      if UnitClassFromGUID then
-        local _, token = UnitClassFromGUID(guid)
-        classToken = token
+      -- Strategy 1: GetPlayerInfoByGUID (returns localizedClass, englishClass, ...)
+      if GetPlayerInfoByGUID then
+        local ok, locClass, engClass, _, _, pName = pcall(GetPlayerInfoByGUID, guid)
+        if ok and pName and pName ~= "" then
+          destName = pName
+          classToken = engClass
+        end
       end
 
-      -- Fallback: scan party/player unit GUIDs directly
+      -- Strategy 2: UnitNameFromGUID / UnitClassFromGUID (12.0 API)
+      if not destName and UnitNameFromGUID then
+        local n = UnitNameFromGUID(guid)
+        if n then destName = n end
+      end
+      if not classToken and UnitClassFromGUID then
+        local _, token = UnitClassFromGUID(guid)
+        if token then classToken = token end
+      end
+
+      -- Strategy 3: scan party/player unit GUIDs directly
       if not destName then
         if UnitGUID("player") == guid then
           destName = UnitName("player")
@@ -1436,9 +1519,8 @@ do
         end
       end
 
+      -- Must have resolved a name and it must be in our party
       if not destName then return end
-
-      -- Must be in our party (or the player themselves)
       if not (UnitInParty(destName) or UnitName("player") == destName) then return end
 
       -- Fallback class detection via party scan
@@ -1488,7 +1570,8 @@ do
             recentlyLogged[entry.name] = true
           end
         end
-        -- Scan for dead party members
+        -- Scan for dead party members (check dead OR low health — they may
+        -- have been battle-rezzed between dying and this event firing)
         local foundAny = false
         if UnitIsDeadOrGhost("player") then
           local pName = UnitName("player")
@@ -1508,6 +1591,18 @@ do
               foundAny = true
             end
           end
+        end
+
+        -- If the API says more deaths occurred but we couldn't identify who
+        -- died (e.g. battle-rez happened before this event fired), add
+        -- placeholder entries so the death log stays in sync with the count
+        local missing = numDeaths - #mpState.deathLog
+        for _ = 1, missing do
+          mpState.deathLog[#mpState.deathLog + 1] = {
+            name = "Unknown",
+            class = nil,
+            elapsed = elapsed,
+          }
         end
       end
       -- Always sync count so we don't re-process the same deaths

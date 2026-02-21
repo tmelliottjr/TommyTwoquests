@@ -17,5 +17,6 @@ ObjectiveItem.lua
 QuestItem.lua
 RecipeTracker.lua
 MythicPlus.lua
+DevMode.lua
 QuestTracker.lua
 Settings.lua

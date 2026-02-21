@@ -294,17 +294,21 @@ function TTQ:SafeSetFont(fontString, face, size, outline)
 end
 
 ----------------------------------------------------------------------
--- Throttled tracker refresh — coalesces rapid event bursts
+-- Debounced tracker refresh — waits for event bursts to settle.
+-- Always resets the timer so the refresh fires 0.1s after the LAST
+-- event, ensuring the quest log is in its final state (e.g. after
+-- QUEST_TURNED_IN + QUEST_REMOVED both fire before we rebuild).
 ----------------------------------------------------------------------
 function TTQ:ScheduleRefresh()
-    if not self._refreshTimer then
-        self._refreshTimer = C_Timer.NewTimer(0.1, function()
-            self._refreshTimer = nil
-            if self.RefreshTracker then
-                self:SafeRefreshTracker()
-            end
-        end)
+    if self._refreshTimer then
+        self._refreshTimer:Cancel()
     end
+    self._refreshTimer = C_Timer.NewTimer(0.1, function()
+        self._refreshTimer = nil
+        if self.RefreshTracker then
+            self:SafeRefreshTracker()
+        end
+    end)
 end
 
 ----------------------------------------------------------------------

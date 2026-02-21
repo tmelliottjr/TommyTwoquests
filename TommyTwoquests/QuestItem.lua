@@ -27,6 +27,10 @@ local questItemPool = TTQ:CreateObjectPool(
             end
             wipe(item.objectiveItems)
         end
+        -- Clear stale visual state so recycled frames never show old content
+        if item.name then item.name:SetText("") end
+        if item.strikethrough then item.strikethrough:Hide() end
+        if item.expandInd then item.expandInd:Hide() end
         -- Clear any running animation state
         item._animState = nil
         -- Reset hover color state so pooled items don't carry stale tints
