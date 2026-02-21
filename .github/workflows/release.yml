@@ -33,7 +33,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           # Extract the section for this version from CHANGELOG.md
           # Matches from "## vX.Y.Z" until the next "## " or end of file
-          NOTES=$(awk "/^## v${VERSION}(\\s|$)/,/^## /" CHANGELOG.md | tail -n +2 | sed '/^## /d')
+          NOTES=$(awk "/^## v${VERSION}([[:space:]]|$)/,/^## /" CHANGELOG.md | tail -n +2 | sed '/^## /d')
           if [ -z "$NOTES" ]; then
             NOTES="Release v${VERSION}"
           fi
