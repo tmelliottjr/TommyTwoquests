@@ -46,8 +46,11 @@ local questItemPool = TTQ:CreateObjectPool(
             item.itemBtn:Hide()
             item.itemBtn:SetAlpha(0)
         end
-        -- Hide group finder button on release
+        -- Hide group finder button on release and reset parent/tracking
         if item.groupFinderBtn then
+            item.groupFinderBtn:SetScript("OnUpdate", nil)
+            item.groupFinderBtn._trackFrame = nil
+            item.groupFinderBtn:SetParent(item.frame)
             item.groupFinderBtn:Hide()
             item.groupFinderBtn:SetAlpha(0)
         end
@@ -650,26 +653,78 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
             gfBtn._questID = questID
             gfBtn:ClearAllPoints()
 
-            -- Position relative to itemBtn when visible, else at the right edge
+            local position = self:GetSetting("questItemPosition") or "right"
             local itemBtnVisible = item.itemBtn:IsShown() and item.itemBtn:GetAlpha() > 0
-            if itemBtnVisible then
-                local position = self:GetSetting("questItemPosition") or "right"
-                if position == "right" then
+
+            if position == "left" and TTQ.Tracker then
+                -- Float outside the tracker on the left, mirroring the quest item button.
+                gfBtn:SetParent(TTQ.Tracker)
+                gfBtn:SetFrameLevel(TTQ.Tracker:GetFrameLevel() + 10)
+                gfBtn._trackFrame = item.frame
+                gfBtn._trackItemBtn = itemBtnVisible and item.itemBtn or nil
+                gfBtn:SetScript("OnUpdate", function(self)
+                    local tf = self._trackFrame
+                    if not tf or not tf:IsVisible() then
+                        self:SetAlpha(0)
+                        return
+                    end
+                    local _, frameY = tf:GetCenter()
+                    local _, trackerY = TTQ.Tracker:GetCenter()
+                    if not frameY or not trackerY then return end
+                    local scale = tf:GetEffectiveScale() / TTQ.Tracker:GetEffectiveScale()
+                    local relY = (frameY * scale) - trackerY
+                    self:ClearAllPoints()
+                    -- If the item button is also floating left, stack to its left
+                    local siblingBtn = self._trackItemBtn
+                    if siblingBtn and siblingBtn:IsShown() and siblingBtn:GetAlpha() > 0 then
+                        self:SetPoint("RIGHT", siblingBtn, "LEFT", -2, 0)
+                    else
+                        self:SetPoint("RIGHT", TTQ.Tracker, "LEFT", -4, relY)
+                    end
+                    -- Hide if scrolled out of the visible scroll area
+                    if TTQ.ScrollFrame then
+                        local sfTop = TTQ.ScrollFrame:GetTop()
+                        local sfBottom = TTQ.ScrollFrame:GetBottom()
+                        local fTop = tf:GetTop()
+                        local fBottom = tf:GetBottom()
+                        if sfTop and sfBottom and fTop and fBottom then
+                            if fTop < sfBottom or fBottom > sfTop then
+                                self:SetAlpha(0)
+                            else
+                                self:SetAlpha(1)
+                            end
+                        end
+                    else
+                        self:SetAlpha(1)
+                    end
+                end)
+                -- Quest name keeps full width in left mode
+                item.name:SetPoint("RIGHT", item.frame, "RIGHT", -4, 0)
+            else
+                -- Right position (default): inside the quest row
+                gfBtn:SetParent(item.frame)
+                gfBtn:SetFrameLevel(item.frame:GetFrameLevel() + 5)
+                gfBtn:SetScript("OnUpdate", nil)
+                gfBtn._trackFrame = nil
+                gfBtn._trackItemBtn = nil
+
+                if itemBtnVisible then
                     gfBtn:SetPoint("RIGHT", item.itemBtn, "LEFT", -2, 0)
                 else
-                    -- Item button floats outside; group finder takes the right edge
                     gfBtn:SetPoint("RIGHT", item.frame, "RIGHT", 0, 0)
                 end
-            else
-                gfBtn:SetPoint("RIGHT", item.frame, "RIGHT", 0, 0)
+
+                -- Shrink quest name to make room for the group finder button
+                item.name:SetPoint("RIGHT", gfBtn, "LEFT", -3, 0)
             end
 
             gfBtn:SetAlpha(1)
             gfBtn:Show()
-
-            -- Shrink quest name to make room for the group finder button
-            item.name:SetPoint("RIGHT", gfBtn, "LEFT", -3, 0)
         else
+            item.groupFinderBtn:SetScript("OnUpdate", nil)
+            item.groupFinderBtn._trackFrame = nil
+            item.groupFinderBtn._trackItemBtn = nil
+            item.groupFinderBtn:SetParent(item.frame)
             item.groupFinderBtn:Hide()
             item.groupFinderBtn:SetAlpha(0)
         end

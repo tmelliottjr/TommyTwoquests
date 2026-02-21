@@ -363,7 +363,7 @@ end
 ----------------------------------------------------------------------
 local function CreateDropdownWidget(parent, labelText, description, options, get, set)
     local row = CreateFrame("Frame", nil, parent)
-    row:SetHeight(52)
+    row:SetHeight(52) -- initial; recalculated after layout
     row.searchText = ((labelText or "") .. " " .. (description or "")):lower()
 
     local label = row:CreateFontString(nil, "OVERLAY")
@@ -384,8 +384,19 @@ local function CreateDropdownWidget(parent, labelText, description, options, get
 
     local btn = CreateFrame("Button", nil, row)
     btn:SetHeight(26)
-    btn:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -28)
+    btn:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -4)
     btn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+
+    -- Dynamically size the row based on actual text height
+    local function RecalcHeight()
+        local labelH = label:GetStringHeight() or Def.LabelSize
+        local descH = desc:GetStringHeight() or Def.SectionSize
+        local total = labelH + 2 + descH + 4 + 26 + 2 -- label + gap + desc + gap + btn + bottom pad
+        row:SetHeight(math.max(52, total))
+        row._measuredHeight = math.max(52, total)
+    end
+    row:SetScript("OnSizeChanged", RecalcHeight)
+    row.RecalcHeight = RecalcHeight
 
     local btnBg = btn:CreateTexture(nil, "BACKGROUND")
     btnBg:SetPoint("TOPLEFT", btn, "TOPLEFT", 2, -2)
@@ -616,21 +627,21 @@ local function BuildOptionCategories()
             name = "Display",
             options = {
                 { type = "section",  name = "Panel" },
-                { type = "slider",   name = "Tracker width",           desc = "Width of the quest tracker frame.",                                                                             dbKey = "trackerWidth",        min = 150,                                                                                              max = 500,  step = 10 },
-                { type = "slider",   name = "Max visible quests",      desc = "Maximum number of quests shown at once.",                                                                       dbKey = "maxQuests",           min = 1,                                                                                                max = 25,   step = 1 },
-                { type = "slider",   name = "Max tracker height",      desc = "Maximum height of the tracker in pixels. Content scrolls when exceeded.",                                       dbKey = "trackerMaxHeight",    min = 200,                                                                                              max = 1200, step = 25 },
-                { type = "toggle",   name = "Lock position",           desc = "Prevent the tracker from being dragged.",                                                                       dbKey = "locked" },
-                { type = "toggle",   name = "Show tracker header",     desc = "Show the title bar with 'Quests' text. When hidden, only the icon buttons appear.",                             dbKey = "showTrackerHeader" },
+                { type = "slider",   name = "Tracker width",           desc = "Width of the quest tracker frame.",                                                                                            dbKey = "trackerWidth",        min = 150,                                                                                              max = 500,  step = 10 },
+                { type = "slider",   name = "Max visible quests",      desc = "Maximum number of quests shown at once.",                                                                                      dbKey = "maxQuests",           min = 1,                                                                                                max = 25,   step = 1 },
+                { type = "slider",   name = "Max tracker height",      desc = "Maximum height of the tracker in pixels. Content scrolls when exceeded.",                                                      dbKey = "trackerMaxHeight",    min = 200,                                                                                              max = 1200, step = 25 },
+                { type = "toggle",   name = "Lock position",           desc = "Prevent the tracker from being dragged.",                                                                                      dbKey = "locked" },
+                { type = "toggle",   name = "Show tracker header",     desc = "Show the title bar with 'Quests' text. When hidden, only the icon buttons appear.",                                            dbKey = "showTrackerHeader" },
                 { type = "section",  name = "Background" },
-                { type = "toggle",   name = "Show background",         desc = "Show a semi-transparent background behind the tracker.",                                                        dbKey = "showBackground" },
-                { type = "slider",   name = "Background opacity",      desc = "Opacity of the tracker background.",                                                                            dbKey = "bgAlpha",             min = 0,                                                                                                max = 1,    step = 0.05 },
-                { type = "toggle",   name = "Class color gradient",    desc = "Add a subtle class-colored gradient and glow to the background.",                                               dbKey = "classColorGradient" },
+                { type = "toggle",   name = "Show background",         desc = "Show a semi-transparent background behind the tracker.",                                                                       dbKey = "showBackground" },
+                { type = "slider",   name = "Background opacity",      desc = "Opacity of the tracker background.",                                                                                           dbKey = "bgAlpha",             min = 0,                                                                                                max = 1,    step = 0.05 },
+                { type = "toggle",   name = "Class color gradient",    desc = "Add a subtle class-colored gradient and glow to the background.",                                                              dbKey = "classColorGradient" },
                 { type = "section",  name = "Visibility" },
-                { type = "toggle",   name = "Hide in combat",          desc = "Hide the tracker when you enter combat.",                                                                       dbKey = "hideInCombat" },
-                { type = "toggle",   name = "Show abandon all button", desc = "Show a skull button in the header to abandon all quests at once.",                                              dbKey = "showAbandonAllButton" },
-                { type = "toggle",   name = "Show tracker tooltips",   desc = "Show tooltips when hovering over quests and section headers in the tracker.",                                   dbKey = "showTrackerTooltips" },
-                { type = "section",  name = "Quest Items" },
-                { type = "dropdown", name = "Quest item button",       desc = "Position of the usable quest item button. Right places it inside the row; Left floats it outside the tracker.", dbKey = "questItemPosition",   options = { { name = "Right (inline)", value = "right" }, { name = "Left (outside)", value = "left" } } },
+                { type = "toggle",   name = "Hide in combat",          desc = "Hide the tracker when you enter combat.",                                                                                      dbKey = "hideInCombat" },
+                { type = "toggle",   name = "Show abandon all button", desc = "Show a skull button in the header to abandon all quests at once.",                                                             dbKey = "showAbandonAllButton" },
+                { type = "toggle",   name = "Show tracker tooltips",   desc = "Show tooltips when hovering over quests and section headers in the tracker.",                                                  dbKey = "showTrackerTooltips" },
+                { type = "section",  name = "Action Buttons" },
+                { type = "dropdown", name = "Button position",         desc = "Position of the quest item and group finder buttons. Right places them inside the row; Left floats them outside the tracker.", dbKey = "questItemPosition",   options = { { name = "Right (inline)", value = "right" }, { name = "Left (outside)", value = "left" } } },
             },
         },
         {
@@ -935,7 +946,25 @@ function TTQ:BuildSettingsUI()
                 w:SetPoint("TOPLEFT", currentCard.contentAnchor, "BOTTOMLEFT", 0, -Def.OptionGap)
                 w:SetPoint("RIGHT", currentCard, "RIGHT", -Def.CardPadding, 0)
                 currentCard.contentAnchor = w
-                currentCard.contentHeight = currentCard.contentHeight + Def.OptionGap + ROW_HEIGHTS.dropdown
+                -- Use measured height if available (accounts for desc text wrapping)
+                local dropdownH = (w._measuredHeight and w._measuredHeight > 0) and w._measuredHeight or
+                ROW_HEIGHTS.dropdown
+                currentCard.contentHeight = currentCard.contentHeight + Def.OptionGap + dropdownH
+                -- Re-measure on show to catch late layout changes
+                local cardRef = currentCard
+                local origRecalc = w.RecalcHeight
+                if origRecalc then
+                    local oldH = dropdownH
+                    w.RecalcHeight = function()
+                        origRecalc()
+                        local newH = w._measuredHeight or ROW_HEIGHTS.dropdown
+                        if newH ~= oldH then
+                            cardRef.contentHeight = cardRef.contentHeight + (newH - oldH)
+                            cardRef:SetHeight(cardRef.contentHeight + Def.CardPadding)
+                            oldH = newH
+                        end
+                    end
+                end
                 if opt.dbKey then optionFrames[opt.dbKey] = { tabIndex = catIdx, frame = w } end
                 allRefreshers[#allRefreshers + 1] = w
             end
