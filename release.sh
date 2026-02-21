@@ -48,6 +48,21 @@ echo "Current version: $CURRENT"
 echo "Next version:    $NEXT"
 echo ""
 
+# --- Check CHANGELOG.md has an entry for this version ---
+if grep -qP "^## Unreleased(\s|$)" CHANGELOG.md 2>/dev/null; then
+  # Rename "Unreleased" to the new version
+  sed -i "s/^## Unreleased.*/## v${NEXT}/" CHANGELOG.md
+  echo "Updated CHANGELOG.md: Unreleased → v${NEXT}"
+elif ! grep -qP "^## v${NEXT}(\s|$)" CHANGELOG.md 2>/dev/null; then
+  echo "Warning: CHANGELOG.md has no '## Unreleased' or '## v${NEXT}' section."
+  echo "Add your release notes before releasing."
+  read -rp "Continue anyway? (y/N) " confirm
+  if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+    echo "Aborted. Update CHANGELOG.md and try again."
+    exit 1
+  fi
+fi
+
 # --- Check for uncommitted changes ---
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "Error: you have uncommitted changes. Commit or stash them first."
@@ -65,7 +80,7 @@ sed -i "s/^## Version: .*/## Version: ${NEXT}/" "$TOC_FILE"
 echo "Updated $TOC_FILE → $NEXT"
 
 # --- Commit, tag, push ---
-git add "$TOC_FILE"
+git add "$TOC_FILE" CHANGELOG.md
 git commit -m "chore: bump version to ${NEXT}"
 git tag "$TAG"
 git push && git push origin "$TAG"

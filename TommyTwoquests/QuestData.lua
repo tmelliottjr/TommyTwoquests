@@ -165,9 +165,9 @@ function TTQ:GetTrackedQuests()
                         _, desc = GetQuestLogQuestText()
                     end
                     questDescription = desc and desc ~= "" and desc or nil
-                    -- Restore previous selection
-                    if oldSelection and C_QuestLog.SetSelectedQuest then
-                        C_QuestLog.SetSelectedQuest(oldSelection)
+                    -- Restore previous selection (always restore, even if nil/0)
+                    if C_QuestLog.SetSelectedQuest then
+                        C_QuestLog.SetSelectedQuest(oldSelection or 0)
                     end
                 end
 
@@ -189,12 +189,35 @@ function TTQ:GetTrackedQuests()
                     questLogIndex    = i,
                     campaignID       = info.campaignID,
                     questDescription = questDescription,
+                    hasQuestItem     = false, -- populated below
+                    questItemLink    = nil,
+                    questItemTexture = nil,
                 })
             end
         end
     end
 
     return quests
+end
+
+----------------------------------------------------------------------
+-- Enrich quests with special-item info (post-pass so that
+-- GetQuestLogSpecialItemInfo is called outside the tight loop that
+-- also touches SetSelectedQuest).
+----------------------------------------------------------------------
+function TTQ:EnrichQuestItems(quests)
+    if not GetQuestLogSpecialItemInfo then return end
+    for _, quest in ipairs(quests) do
+        local link, tex = GetQuestLogSpecialItemInfo(quest.questLogIndex)
+        if link and tex then
+            quest.hasQuestItem     = true
+            quest.questItemLink    = link
+            quest.questItemTexture = tex
+            -- Extract numeric item ID from the link for cooldown lookups
+            local itemID           = link:match("item:(%d+)")
+            quest.questItemID      = itemID and tonumber(itemID) or nil
+        end
+    end
 end
 
 ----------------------------------------------------------------------

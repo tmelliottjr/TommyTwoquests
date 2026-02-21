@@ -60,6 +60,7 @@ TTQ.Defaults = {
     groupCurrentZoneQuests   = false,
 
     -- Behavior
+    showTrackerTooltips      = true,
     showIcons                = true,
     showObjectiveNumbers     = true,
     showQuestLevel           = false,
@@ -77,6 +78,12 @@ TTQ.Defaults = {
 
     -- Recipes
     showRecipes              = true,
+
+    -- Abandon all quests button
+    showAbandonAllButton     = false,
+
+    -- Quest item button position: "right" (inside row) or "left" (outside tracker)
+    questItemPosition        = "right",
 
     -- Collapsed category groups (keyed by quest type, e.g. collapsedGroups.campaign = true)
     collapsedGroups          = {},

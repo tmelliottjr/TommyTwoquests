@@ -159,8 +159,6 @@ function TTQ:OnReady()
 end
 
 ----------------------------------------------------------------------
--- Open addon settings panel (custom Horizon-style panel)
-----------------------------------------------------------------------
 -- TTQ:OpenSettings() is defined in Settings.lua (custom panel toggle)
 
 ----------------------------------------------------------------------

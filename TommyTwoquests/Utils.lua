@@ -256,6 +256,34 @@ function TTQ:DeepMerge(dst, src)
 end
 
 ----------------------------------------------------------------------
+-- Tracker tooltip helpers — centralises the showTrackerTooltips guard.
+-- Use for quest items, section headers, recipes, reagents — anything
+-- inside the tracker content area.  Header-bar buttons (gear, filter,
+-- abandon, collapse) should call GameTooltip directly so they always
+-- show tooltips regardless of this setting.
+--
+-- Usage:
+--   if TTQ:BeginTooltip(owner) then
+--       GameTooltip:SetText(...)
+--       GameTooltip:AddLine(...)
+--       TTQ:EndTooltip()
+--   end
+----------------------------------------------------------------------
+function TTQ:BeginTooltip(owner, anchor)
+    if not self:GetSetting("showTrackerTooltips") then return false end
+    GameTooltip:SetOwner(owner, anchor or "ANCHOR_LEFT")
+    return true
+end
+
+function TTQ:EndTooltip()
+    GameTooltip:Show()
+end
+
+function TTQ:HideTooltip()
+    GameTooltip:Hide()
+end
+
+----------------------------------------------------------------------
 -- Safe font setter — applies font with pcall fallback to default
 ----------------------------------------------------------------------
 function TTQ:SafeSetFont(fontString, face, size, outline)
@@ -283,6 +311,11 @@ end
 -- Error-boundary wrapper for RefreshTracker
 ----------------------------------------------------------------------
 function TTQ:SafeRefreshTracker()
+    -- Cancel any pending throttled refresh to avoid a redundant rebuild
+    if self._refreshTimer then
+        self._refreshTimer:Cancel()
+        self._refreshTimer = nil
+    end
     local ok, err = xpcall(self.RefreshTracker, function(e)
         return e .. "\n" .. (debugstack and debugstack() or "")
     end, self)

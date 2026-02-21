@@ -187,7 +187,6 @@ function TTQ:GetMythicPlusData()
   if mpState.runCompleted and mpState.completionTime then
     data.elapsed = mpState.completionTime
   else
-    -- Use GetWorldElapsedTime(1) directly (same as WarpDeplete)
     local timerFound = false
     if GetWorldElapsedTime then
       local ok, _timerID, elapsed = pcall(GetWorldElapsedTime, 1)
@@ -418,6 +417,9 @@ end
 local function GetTimerColor(remaining, total)
   if remaining <= 0 then
     return MP.Colors.timerOver
+  end
+  if not total or total <= 0 then
+    return MP.Colors.timerPlenty
   end
   local ratio = remaining / total
   if ratio > 0.5 then
@@ -1343,8 +1345,7 @@ do
   evFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
   evFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
   -- In WoW 12.0 (Midnight) COMBAT_LOG_EVENT_UNFILTERED registration is
-  -- protected; use the new standalone UNIT_DIED event instead (same
-  -- approach as WarpDeplete).
+  -- protected; use the new standalone UNIT_DIED event instead
   evFrame:RegisterEvent("UNIT_DIED")
 
   evFrame:SetScript("OnEvent", function(_, evt, ...)
@@ -1355,7 +1356,7 @@ do
       -- Run completed — freeze timer, keep display
     elseif evt == "CHALLENGE_MODE_COMPLETED" then
       mpState.runCompleted = true
-      -- Use the authoritative CompletionInfo API (same approach as WarpDeplete)
+      -- Use the authoritative CompletionInfo API
       -- to get the precise completion time and onTime flag.
       local completionElapsed
       if C_ChallengeMode.GetChallengeCompletionInfo then

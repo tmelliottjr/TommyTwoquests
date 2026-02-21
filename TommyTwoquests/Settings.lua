@@ -1,7 +1,5 @@
 ----------------------------------------------------------------------
 -- TommyTwoquests — Settings.lua
--- Custom Horizon-style options panel: sidebar, section cards, toggle
--- switches, sliders, dropdowns, search.
 ----------------------------------------------------------------------
 local AddonName, TTQ = ...
 local ipairs, type, math, pcall, tostring, pairs, select, string =
@@ -593,7 +591,7 @@ local function CreateSearchInput(parent, onTextChanged, placeholder)
 end
 
 ----------------------------------------------------------------------
--- Option category data (data-driven, Horizon style)
+-- Option category data
 ----------------------------------------------------------------------
 local function GetFontOptions()
     local fontList = TTQ:GetFontList()
@@ -617,18 +615,22 @@ local function BuildOptionCategories()
             key = "Display",
             name = "Display",
             options = {
-                { type = "section", name = "Panel" },
-                { type = "slider",  name = "Tracker width",        desc = "Width of the quest tracker frame.",                                                 dbKey = "trackerWidth",      min = 150, max = 500,  step = 10 },
-                { type = "slider",  name = "Max visible quests",   desc = "Maximum number of quests shown at once.",                                           dbKey = "maxQuests",         min = 1,   max = 25,   step = 1 },
-                { type = "slider",  name = "Max tracker height",   desc = "Maximum height of the tracker in pixels. Content scrolls when exceeded.",           dbKey = "trackerMaxHeight",  min = 200, max = 1200, step = 25 },
-                { type = "toggle",  name = "Lock position",        desc = "Prevent the tracker from being dragged.",                                           dbKey = "locked" },
-                { type = "toggle",  name = "Show tracker header",  desc = "Show the title bar with 'Quests' text. When hidden, only the icon buttons appear.", dbKey = "showTrackerHeader" },
-                { type = "section", name = "Background" },
-                { type = "toggle",  name = "Show background",      desc = "Show a semi-transparent background behind the tracker.",                            dbKey = "showBackground" },
-                { type = "slider",  name = "Background opacity",   desc = "Opacity of the tracker background.",                                                dbKey = "bgAlpha",           min = 0,   max = 1,    step = 0.05 },
-                { type = "toggle",  name = "Class color gradient", desc = "Add a subtle class-colored gradient and glow to the background.",                   dbKey = "classColorGradient" },
-                { type = "section", name = "Visibility" },
-                { type = "toggle",  name = "Hide in combat",       desc = "Hide the tracker when you enter combat.",                                           dbKey = "hideInCombat" },
+                { type = "section",  name = "Panel" },
+                { type = "slider",   name = "Tracker width",           desc = "Width of the quest tracker frame.",                                                                             dbKey = "trackerWidth",        min = 150,                                                                                              max = 500,  step = 10 },
+                { type = "slider",   name = "Max visible quests",      desc = "Maximum number of quests shown at once.",                                                                       dbKey = "maxQuests",           min = 1,                                                                                                max = 25,   step = 1 },
+                { type = "slider",   name = "Max tracker height",      desc = "Maximum height of the tracker in pixels. Content scrolls when exceeded.",                                       dbKey = "trackerMaxHeight",    min = 200,                                                                                              max = 1200, step = 25 },
+                { type = "toggle",   name = "Lock position",           desc = "Prevent the tracker from being dragged.",                                                                       dbKey = "locked" },
+                { type = "toggle",   name = "Show tracker header",     desc = "Show the title bar with 'Quests' text. When hidden, only the icon buttons appear.",                             dbKey = "showTrackerHeader" },
+                { type = "section",  name = "Background" },
+                { type = "toggle",   name = "Show background",         desc = "Show a semi-transparent background behind the tracker.",                                                        dbKey = "showBackground" },
+                { type = "slider",   name = "Background opacity",      desc = "Opacity of the tracker background.",                                                                            dbKey = "bgAlpha",             min = 0,                                                                                                max = 1,    step = 0.05 },
+                { type = "toggle",   name = "Class color gradient",    desc = "Add a subtle class-colored gradient and glow to the background.",                                               dbKey = "classColorGradient" },
+                { type = "section",  name = "Visibility" },
+                { type = "toggle",   name = "Hide in combat",          desc = "Hide the tracker when you enter combat.",                                                                       dbKey = "hideInCombat" },
+                { type = "toggle",   name = "Show abandon all button", desc = "Show a skull button in the header to abandon all quests at once.",                                              dbKey = "showAbandonAllButton" },
+                { type = "toggle",   name = "Show tracker tooltips",   desc = "Show tooltips when hovering over quests and section headers in the tracker.",                                   dbKey = "showTrackerTooltips" },
+                { type = "section",  name = "Quest Items" },
+                { type = "dropdown", name = "Quest item button",       desc = "Position of the usable quest item button. Right places it inside the row; Left floats it outside the tracker.", dbKey = "questItemPosition",   options = { { name = "Right (inline)", value = "right" }, { name = "Left (outside)", value = "left" } } },
             },
         },
         {
@@ -1209,13 +1211,18 @@ function TTQ:OnSettingChanged(key, value)
         if self.UpdateTrackerBackdrop then self:UpdateTrackerBackdrop() end
     end
 
+    -- Refresh abandon button visibility
+    if key == "showAbandonAllButton" then
+        if self.UpdateAbandonButtonVisibility then self:UpdateAbandonButtonVisibility() end
+    end
+
     -- Refresh tracker width
     if key == "trackerWidth" and self.Tracker then
         self.Tracker:SetWidth(value)
     end
 
-    -- Always refresh tracker display
+    -- Throttle tracker refresh (avoids 60fps rebuild storms from slider drags)
     if self.Tracker then
-        self:SafeRefreshTracker()
+        self:ScheduleRefresh()
     end
 end

@@ -90,6 +90,9 @@ function TTQ:CreateContextMenu(globalName)
     text:SetPoint("LEFT", btn, "LEFT", 4, 0)
     btn.label = text
     btn:SetScript("OnClick", function()
+      if btn._disabled then
+        menu:Hide(); return
+      end
       if btn._onClick then btn._onClick() end
       menu:Hide()
     end)
@@ -119,10 +122,11 @@ function TTQ:CreateContextMenu(globalName)
       btn.label:SetText(btnConfig.label or "")
       btn._onClick = btnConfig.onClick
       btn._tooltip = btnConfig.tooltip
+      btn._disabled = btnConfig.disabled
 
       local c = btnConfig.color or { r = 0.9, g = 0.9, b = 0.9 }
       if btnConfig.disabled then
-        btn.label:SetTextColor(0.5, c.g or 0.9, c.b or 0.9)
+        btn.label:SetTextColor(0.45, 0.45, 0.45)
       else
         btn.label:SetTextColor(c.r or 0.9, c.g or 0.9, c.b or 0.9)
       end

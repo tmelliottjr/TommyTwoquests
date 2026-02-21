@@ -12,6 +12,7 @@ local objectivePool = TTQ:CreateObjectPool(
     function(parent) return TTQ:CreateObjectiveItem(parent) end,
     function(item)
         item.frame:SetAlpha(1)
+        item.questID = nil -- clear stale questID to prevent wrong quest opening
         if item.checkIcon then item.checkIcon:Hide() end
         if item.dash then item.dash:Show() end
     end

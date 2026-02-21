@@ -27,10 +27,23 @@ jobs:
         run: |
           zip -r "TommyTwoquests-${{ steps.version.outputs.version }}.zip" TommyTwoquests/
 
+      - name: Extract release notes from CHANGELOG.md
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Extract the section for this version from CHANGELOG.md
+          # Matches from "## vX.Y.Z" until the next "## " or end of file
+          NOTES=$(awk "/^## v${VERSION}(\\s|$)/,/^## /" CHANGELOG.md | tail -n +2 | sed '/^## /d')
+          if [ -z "$NOTES" ]; then
+            NOTES="Release v${VERSION}"
+          fi
+          # Write to file to preserve newlines
+          echo "$NOTES" > /tmp/release_notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: v${{ steps.version.outputs.version }}
-          generate_release_notes: true
+          body_path: /tmp/release_notes.md
           files: TommyTwoquests-${{ steps.version.outputs.version }}.zip

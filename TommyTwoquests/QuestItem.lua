@@ -6,10 +6,16 @@ local AddonName, TTQ = ...
 local table, ipairs, pcall, CreateFrame, UIParent = table, ipairs, pcall, CreateFrame, UIParent
 local C_SuperTrack, C_QuestLog, C_Texture = C_SuperTrack, C_QuestLog, C_Texture
 local C_Timer = C_Timer
-local wipe, math, string, GetTime = wipe, math, string, GetTime
+local wipe, math, string, GetTime, InCombatLockdown = wipe, math, string, GetTime, InCombatLockdown
 
 -- Width reserved for focus icon on the left
 local FOCUS_ICON_WIDTH = 14
+
+-- Width of the quest item-use button on the right
+local ITEM_BTN_SIZE = 20
+
+-- Counter for unique secure button names
+local itemBtnCounter = 0
 
 -- Object pool for quest rows
 local questItemPool = TTQ:CreateObjectPool(
@@ -26,6 +32,20 @@ local questItemPool = TTQ:CreateObjectPool(
         -- Reset hover color state so pooled items don't carry stale tints
         item._hoverAnimT = 0
         item.frame:SetScript("OnUpdate", nil)
+        -- Reset focus icon position so world-quest offset doesn't leak
+        if item.focusIcon then
+            item.focusIcon:ClearAllPoints()
+            item.focusIcon:SetPoint("TOPLEFT", item.frame, "TOPLEFT", 0, -4)
+            item.focusIcon:SetAlpha(0)
+        end
+        -- Hide quest item button on release and reset parent/tracking
+        if item.itemBtn then
+            item.itemBtn:SetScript("OnUpdate", nil)
+            item.itemBtn._trackFrame = nil
+            item.itemBtn:SetParent(item.frame)
+            item.itemBtn:Hide()
+            item.itemBtn:SetAlpha(0)
+        end
     end
 )
 
@@ -110,6 +130,71 @@ function TTQ:CreateQuestItem(parent)
     name:SetMaxLines(1)
     item.name = name
 
+    -- Quest item-use button (SecureActionButton — can use items without tainting)
+    -- Created parented to the quest row; re-parented at update time when
+    -- the user picks "left" positioning (floats outside the tracker).
+    itemBtnCounter = itemBtnCounter + 1
+    local itemBtn = CreateFrame("Button", "TTQItemBtn" .. itemBtnCounter, frame,
+        "SecureActionButtonTemplate, BackdropTemplate")
+    itemBtn:SetSize(ITEM_BTN_SIZE, ITEM_BTN_SIZE)
+    itemBtn:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+    itemBtn:SetFrameLevel(frame:GetFrameLevel() + 5)
+    itemBtn:RegisterForClicks("AnyUp", "AnyDown")
+
+    -- Dark rounded backdrop
+    itemBtn:SetBackdrop({
+        bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 8,
+        tile     = true,
+        tileSize = 8,
+        insets   = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    itemBtn:SetBackdropColor(0.08, 0.08, 0.10, 0.92)
+    itemBtn:SetBackdropBorderColor(0.35, 0.35, 0.40, 0.6)
+
+    local itemIcon = itemBtn:CreateTexture(nil, "ARTWORK")
+    itemIcon:SetSize(ITEM_BTN_SIZE - 6, ITEM_BTN_SIZE - 6)
+    itemIcon:SetPoint("CENTER")
+    itemIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim icon edges
+    itemBtn.icon = itemIcon
+
+    -- Highlight glow on hover
+    local itemHl = itemBtn:CreateTexture(nil, "HIGHLIGHT")
+    itemHl:SetAllPoints(itemIcon)
+    itemHl:SetColorTexture(1, 1, 1, 0.18)
+
+    -- Cooldown spinner
+    local itemCooldown = CreateFrame("Cooldown", nil, itemBtn, "CooldownFrameTemplate")
+    itemCooldown:SetAllPoints(itemIcon)
+    itemCooldown:SetDrawEdge(false)
+    itemCooldown:SetSwipeColor(0, 0, 0, 0.65)
+    itemCooldown:SetHideCountdownNumbers(false)
+    -- Style the countdown number region with a small font
+    local cdText = itemCooldown:GetRegions()
+    if cdText and cdText.SetFont then
+        local fontFace = TTQ:GetResolvedFont("objective")
+        TTQ:SafeSetFont(cdText, fontFace, 12, "OUTLINE")
+    end
+    itemBtn.cooldown = itemCooldown
+
+    -- Tooltip: show the item tooltip on hover
+    itemBtn:SetScript("OnEnter", function(self)
+        if self._itemLink then
+            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+            GameTooltip:SetHyperlink(self._itemLink)
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Click to use", 0.5, 0.8, 1)
+            GameTooltip:Show()
+        end
+    end)
+    itemBtn:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+
+    itemBtn:Hide()
+    item.itemBtn = itemBtn
+
     -- Store original color for hover restore
     item._nameColorR = nameColor.r
     item._nameColorG = nameColor.g
@@ -123,14 +208,19 @@ function TTQ:CreateQuestItem(parent)
         local questID = questData.questID
 
         if button == "LeftButton" then
-            -- Click: toggle collapse/expand instantly
-            local isCollapsed = TTQ:IsQuestCollapsed(questID)
-            if isCollapsed then
-                TTQ:SetQuestCollapsed(questID, false)
+            if IsShiftKeyDown() then
+                -- Shift-click: toggle collapse/expand
+                local isCollapsed = TTQ:IsQuestCollapsed(questID)
+                TTQ:SetQuestCollapsed(questID, not isCollapsed)
+                TTQ:SafeRefreshTracker()
             else
-                TTQ:SetQuestCollapsed(questID, true)
+                -- Click: focus the quest and open it on the map
+                C_SuperTrack.SetSuperTrackedQuestID(questID)
+                if QuestMapFrame_OpenToQuestDetails then
+                    QuestMapFrame_OpenToQuestDetails(questID)
+                end
+                TTQ:SafeRefreshTracker()
             end
-            TTQ:SafeRefreshTracker()
         elseif button == "RightButton" then
             TTQ:ShowQuestContextMenu(item)
         end
@@ -166,41 +256,42 @@ function TTQ:CreateQuestItem(parent)
             item.name:SetTextColor(nr, ng, nb)
             if raw >= 1 then f:SetScript("OnUpdate", nil) end
         end)
-        -- Tooltip
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText(questData.title, 1, 1, 1)
-        if questData.isTask then
-            GameTooltip:AddLine("World Quest", 0.4, 0.8, 1.0)
-        end
-        if questData.objectives then
-            for _, obj in ipairs(questData.objectives) do
-                if obj.text then
-                    local r, g, b = 0.85, 0.85, 0.85
-                    if obj.finished then r, g, b = 0.5, 0.5, 0.5 end
-                    GameTooltip:AddLine(obj.text, r, g, b)
+        -- Tooltip (gated by showTrackerTooltips via helper)
+        if TTQ:BeginTooltip(self) then
+            GameTooltip:SetText(questData.title, 1, 1, 1)
+            if questData.isTask then
+                GameTooltip:AddLine("World Quest", 0.4, 0.8, 1.0)
+            end
+            if questData.objectives then
+                for _, obj in ipairs(questData.objectives) do
+                    if obj.text then
+                        local r, g, b = 0.85, 0.85, 0.85
+                        if obj.finished then r, g, b = 0.5, 0.5, 0.5 end
+                        GameTooltip:AddLine(obj.text, r, g, b)
+                    end
                 end
             end
-        end
-        if questData.timeLeftMinutes and questData.timeLeftMinutes > 0 then
-            local hours = math.floor(questData.timeLeftMinutes / 60)
-            local mins = questData.timeLeftMinutes % 60
-            local timeStr
-            if hours > 0 then
-                timeStr = string.format("%dh %dm remaining", hours, mins)
-            else
-                timeStr = string.format("%dm remaining", mins)
+            if questData.timeLeftMinutes and questData.timeLeftMinutes > 0 then
+                local hours = math.floor(questData.timeLeftMinutes / 60)
+                local mins = questData.timeLeftMinutes % 60
+                local timeStr
+                if hours > 0 then
+                    timeStr = string.format("%dh %dm remaining", hours, mins)
+                else
+                    timeStr = string.format("%dm remaining", mins)
+                end
+                GameTooltip:AddLine(timeStr, 1, 0.82, 0)
             end
-            GameTooltip:AddLine(timeStr, 1, 0.82, 0)
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Click: Focus & show on map", 0.5, 0.8, 1)
+            GameTooltip:AddLine("Shift-click: Expand/Collapse", 0.5, 0.8, 1)
+            GameTooltip:AddLine("Right-click: Menu", 0.5, 0.8, 1)
+            TTQ:EndTooltip()
         end
-        GameTooltip:AddLine(" ")
-        local isCollapsed = TTQ:IsQuestCollapsed(questData.questID)
-        GameTooltip:AddLine(isCollapsed and "Click: Expand objectives" or "Click: Collapse objectives", 0.5, 0.8, 1)
-        GameTooltip:AddLine("Right-click: Menu", 0.5, 0.8, 1)
-        GameTooltip:Show()
     end)
 
     frame:SetScript("OnLeave", function(self)
-        GameTooltip:Hide()
+        TTQ:HideTooltip()
         -- Only clear hovered quest if the frame is still visible (not being released to pool)
         if self:IsVisible() then
             TTQ._hoveredQuestID = nil
@@ -258,6 +349,9 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
         item.expandInd:Show()
     else
         item.expandInd:Hide()
+        -- Reset focus icon position before setting branch-specific values
+        item.focusIcon:ClearAllPoints()
+        item.focusIcon:SetPoint("TOPLEFT", item.frame, "TOPLEFT", 0, -4)
         -- Focus icon: visible when focused; world quest icon for active WQs;
         -- otherwise invisible (space reserved)
         if quest.isSuperTracked then
@@ -271,6 +365,7 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
             item.focusIcon:SetSize(12, 12)
             item.focusIcon:ClearAllPoints()
             item.focusIcon:SetPoint("TOPLEFT", item.frame, "TOPLEFT", -2, -4)
+            item.focusIcon:SetDesaturated(false)
             item.focusIcon:SetDesaturated(false)
             item.focusIcon:SetVertexColor(1, 1, 1)
             item.focusIcon:SetAlpha(1)
@@ -344,6 +439,146 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
 
     -- Width
     item.frame:SetWidth(parentWidth)
+
+    -- Quest item-use button
+    if item.itemBtn then
+        if quest.hasQuestItem and quest.questItemTexture and not InCombatLockdown() then
+            local btn = item.itemBtn
+            btn.icon:SetTexture(quest.questItemTexture)
+            btn._itemLink = quest.questItemLink
+            -- Configure secure action: use the quest item by item link
+            btn:SetAttribute("type", "item")
+            btn:SetAttribute("item", quest.questItemLink)
+
+            local position = TTQ:GetSetting("questItemPosition") or "right"
+            btn:ClearAllPoints()
+
+            if position == "left" and TTQ.Tracker then
+                -- Float outside the tracker on the left, centered on the quest row.
+                -- Re-parent to the Tracker (which doesn't clip) so it renders
+                -- outside the scroll frame.
+                btn:SetParent(TTQ.Tracker)
+                btn:SetFrameLevel(TTQ.Tracker:GetFrameLevel() + 10)
+                -- Track the quest row position via OnUpdate
+                btn._trackFrame = item.frame
+                btn._cdPollElapsed = 0
+                btn:SetScript("OnUpdate", function(self, elapsed)
+                    local tf = self._trackFrame
+                    if not tf or not tf:IsVisible() then
+                        self:SetAlpha(0)
+                        return
+                    end
+                    -- Get the quest row's vertical center in tracker coordinates
+                    local _, frameY = tf:GetCenter()
+                    local _, trackerY = TTQ.Tracker:GetCenter()
+                    if not frameY or not trackerY then return end
+                    local scale = tf:GetEffectiveScale() / TTQ.Tracker:GetEffectiveScale()
+                    local relY = (frameY * scale) - trackerY
+                    self:ClearAllPoints()
+                    self:SetPoint("RIGHT", TTQ.Tracker, "LEFT", -4, relY)
+                    -- Hide if the quest row is scrolled out of the visible scroll area
+                    if TTQ.ScrollFrame then
+                        local sfTop = TTQ.ScrollFrame:GetTop()
+                        local sfBottom = TTQ.ScrollFrame:GetBottom()
+                        local fTop = tf:GetTop()
+                        local fBottom = tf:GetBottom()
+                        if sfTop and sfBottom and fTop and fBottom then
+                            if fTop < sfBottom or fBottom > sfTop then
+                                self:SetAlpha(0)
+                            else
+                                self:SetAlpha(1)
+                            end
+                        end
+                    else
+                        self:SetAlpha(1)
+                    end
+                    -- Poll cooldown
+                    self._cdPollElapsed = (self._cdPollElapsed or 0) + elapsed
+                    if self._cdPollElapsed >= 0.2 then
+                        self._cdPollElapsed = 0
+                        local idx = self._questLogIndex
+                        if idx and GetQuestLogSpecialItemCooldown then
+                            local start, duration = GetQuestLogSpecialItemCooldown(idx)
+                            if start and duration and duration > 1.5 then
+                                self.cooldown:Show()
+                                self.cooldown:SetCooldown(start, duration)
+                            else
+                                self.cooldown:Clear()
+                                self.cooldown:Hide()
+                            end
+                        end
+                    end
+                end)
+                -- Quest name keeps full width
+                item.name:SetPoint("RIGHT", item.frame, "RIGHT", -4, 0)
+            else
+                -- Right position (default): inside the quest row
+                btn:SetParent(item.frame)
+                btn:SetFrameLevel(item.frame:GetFrameLevel() + 5)
+                btn:SetPoint("RIGHT", item.frame, "RIGHT", 0, 0)
+                btn:SetScript("OnUpdate", nil)
+                btn._trackFrame = nil
+                -- Shrink quest name to make room for item button
+                item.name:SetPoint("RIGHT", btn, "LEFT", -3, 0)
+            end
+
+            btn:SetAlpha(1)
+            btn:Show()
+
+            -- Update cooldown text font to match user settings
+            local cdText = btn.cooldown:GetRegions()
+            if cdText and cdText.SetFont then
+                local fontFace = TTQ:GetResolvedFont("objective")
+                TTQ:SafeSetFont(cdText, fontFace, 12, "OUTLINE")
+            end
+
+            -- Cooldown: use the quest-log-specific cooldown API and
+            -- poll for updates so the spinner appears after item use.
+            btn._questLogIndex = quest.questLogIndex
+            btn.cooldown:Clear()
+            btn.cooldown:Hide()
+
+            local function UpdateQuestItemCooldown(self)
+                local idx = self._questLogIndex
+                if not idx then return end
+                local start, duration, enable
+                if GetQuestLogSpecialItemCooldown then
+                    start, duration, enable = GetQuestLogSpecialItemCooldown(idx)
+                end
+                if start and duration and duration > 1.5 then
+                    self.cooldown:Show()
+                    self.cooldown:SetCooldown(start, duration)
+                else
+                    self.cooldown:Clear()
+                    self.cooldown:Hide()
+                end
+            end
+
+            -- Initial check
+            UpdateQuestItemCooldown(btn)
+
+            -- If in "left" mode we already have an OnUpdate; merge cooldown
+            -- polling into it. For "right" mode, add a lightweight poller.
+            if position ~= "left" or not TTQ.Tracker then
+                local existingOnUpdate = btn:GetScript("OnUpdate")
+                btn._cdPollElapsed = 0
+                btn:SetScript("OnUpdate", function(self, elapsed)
+                    self._cdPollElapsed = (self._cdPollElapsed or 0) + elapsed
+                    if self._cdPollElapsed >= 0.2 then
+                        self._cdPollElapsed = 0
+                        UpdateQuestItemCooldown(self)
+                    end
+                end)
+            end
+        else
+            item.itemBtn:SetScript("OnUpdate", nil)
+            item.itemBtn._trackFrame = nil
+            item.itemBtn:SetParent(item.frame)
+            item.itemBtn:Hide()
+            item.itemBtn:SetAlpha(0)
+            item.name:SetPoint("RIGHT", item.frame, "RIGHT", -4, 0)
+        end
+    end
 
     -- Build objective items (skip if collapsed)
     if item.objectiveItems then
@@ -489,6 +724,9 @@ function TTQ:ShowQuestContextMenu(item)
                 disabled = shareDisabled,
                 onClick = function()
                     if not shareDisabled and QuestLogPushQuest then
+                        if C_QuestLog.SetSelectedQuest then
+                            C_QuestLog.SetSelectedQuest(questID)
+                        end
                         QuestLogPushQuest()
                     end
                 end,

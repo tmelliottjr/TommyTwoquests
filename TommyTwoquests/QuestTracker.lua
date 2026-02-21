@@ -329,6 +329,40 @@ function TTQ:CreateTrackerFrame()
     end)
     self.FilterBtn = filterBtn
 
+    -- Abandon All button (skull icon) — hidden by default, controlled by setting
+    local abandonBtn = CreateFrame("Button", nil, titleBar)
+    abandonBtn:SetSize(16, 16)
+    abandonBtn:SetPoint("RIGHT", filterBtn, "LEFT", -2, 0)
+    abandonBtn:RegisterForClicks("LeftButtonUp")
+
+    local abandonIcon = abandonBtn:CreateTexture(nil, "ARTWORK")
+    abandonIcon:SetSize(14, 14)
+    abandonIcon:SetPoint("CENTER")
+    abandonIcon:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-Skull")
+    abandonIcon:SetDesaturated(true)
+    abandonIcon:SetVertexColor(0.85, 0.85, 0.85)
+    abandonBtn.icon = abandonIcon
+
+    local abandonHighlight = abandonBtn:CreateTexture(nil, "HIGHLIGHT")
+    abandonHighlight:SetAllPoints()
+    abandonHighlight:SetColorTexture(1, 0.2, 0.2, 0.15)
+
+    abandonBtn:SetScript("OnClick", function()
+        TTQ:ShowAbandonAllConfirmation()
+    end)
+    abandonBtn:SetScript("OnEnter", function(btn)
+        GameTooltip:SetOwner(btn, "ANCHOR_LEFT")
+        GameTooltip:SetText("Abandon All Quests", 1, 0.3, 0.3)
+        GameTooltip:AddLine("Click to abandon ALL tracked quests.", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("This action cannot be undone!", 1, 0.4, 0.4)
+        GameTooltip:Show()
+    end)
+    abandonBtn:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+    self.AbandonBtn = abandonBtn
+    self:UpdateAbandonButtonVisibility()
+
     -- Scroll frame wrapping the content area for overflow
     local scrollFrame = CreateFrame("ScrollFrame", nil, tracker)
     scrollFrame:SetPoint("TOPLEFT", titleBar, "BOTTOMLEFT", 0, -4)
@@ -371,7 +405,7 @@ function TTQ:CreateTrackerFrame()
 
     -- Zone filter indicator (constrained so it doesn't overlap title)
     local zoneLabel = self:CreateText(titleBar, headerSize - 2, { r = 0.5, g = 0.8, b = 1.0 }, "RIGHT")
-    zoneLabel:SetPoint("RIGHT", filterBtn, "LEFT", -8, 0)
+    zoneLabel:SetPoint("RIGHT", abandonBtn, "LEFT", -8, 0)
     zoneLabel:SetPoint("LEFT", titleBar, "LEFT", 10, 0)
     zoneLabel:SetWordWrap(false)
     zoneLabel:SetNonSpaceWrap(false)
@@ -416,6 +450,7 @@ function TTQ:UpdateHeaderVisibility()
         self.CollapseBtn:SetAlpha(0)
         self.SettingsBtn:SetAlpha(0)
         self.FilterBtn:SetAlpha(0)
+        if self.AbandonBtn and self.AbandonBtn:IsShown() then self.AbandonBtn:SetAlpha(0) end
         -- ScrollFrame anchors below the compact button row
         if self.ScrollFrame then
             self.ScrollFrame:ClearAllPoints()
@@ -444,6 +479,7 @@ function TTQ:UpdateHeaderButtonHover()
             if TTQ.CollapseBtn then TTQ.CollapseBtn:SetAlpha(1) end
             if TTQ.SettingsBtn then TTQ.SettingsBtn:SetAlpha(1) end
             if TTQ.FilterBtn then TTQ.FilterBtn:SetAlpha(1) end
+            if TTQ.AbandonBtn and TTQ.AbandonBtn:IsShown() then TTQ.AbandonBtn:SetAlpha(1) end
         end)
         self.Tracker:SetScript("OnLeave", function(frame)
             if not TTQ:GetSetting("showTrackerHeader") then
@@ -452,6 +488,7 @@ function TTQ:UpdateHeaderButtonHover()
                     if TTQ.CollapseBtn then TTQ.CollapseBtn:SetAlpha(0) end
                     if TTQ.SettingsBtn then TTQ.SettingsBtn:SetAlpha(0) end
                     if TTQ.FilterBtn then TTQ.FilterBtn:SetAlpha(0) end
+                    if TTQ.AbandonBtn and TTQ.AbandonBtn:IsShown() then TTQ.AbandonBtn:SetAlpha(0) end
                 end
             end
         end)
@@ -461,6 +498,7 @@ function TTQ:UpdateHeaderButtonHover()
             if TTQ.CollapseBtn then TTQ.CollapseBtn:SetAlpha(1) end
             if TTQ.SettingsBtn then TTQ.SettingsBtn:SetAlpha(1) end
             if TTQ.FilterBtn then TTQ.FilterBtn:SetAlpha(1) end
+            if TTQ.AbandonBtn and TTQ.AbandonBtn:IsShown() then TTQ.AbandonBtn:SetAlpha(1) end
         end)
         self.TitleBar:SetScript("OnLeave", function()
             if not TTQ.Tracker:IsMouseOver() then
@@ -468,6 +506,7 @@ function TTQ:UpdateHeaderButtonHover()
                     if TTQ.CollapseBtn then TTQ.CollapseBtn:SetAlpha(0) end
                     if TTQ.SettingsBtn then TTQ.SettingsBtn:SetAlpha(0) end
                     if TTQ.FilterBtn then TTQ.FilterBtn:SetAlpha(0) end
+                    if TTQ.AbandonBtn and TTQ.AbandonBtn:IsShown() then TTQ.AbandonBtn:SetAlpha(0) end
                 end
             end
         end)
@@ -476,12 +515,240 @@ function TTQ:UpdateHeaderButtonHover()
         self.CollapseBtn:SetAlpha(1)
         self.SettingsBtn:SetAlpha(1)
         self.FilterBtn:SetAlpha(1)
+        if self.AbandonBtn and self.AbandonBtn:IsShown() then self.AbandonBtn:SetAlpha(1) end
 
         self.Tracker:SetScript("OnEnter", nil)
         self.Tracker:SetScript("OnLeave", nil)
         self.TitleBar:SetScript("OnEnter", nil)
         self.TitleBar:SetScript("OnLeave", nil)
     end
+end
+
+----------------------------------------------------------------------
+-- Show/hide the abandon-all button based on setting
+----------------------------------------------------------------------
+function TTQ:UpdateAbandonButtonVisibility()
+    if not self.AbandonBtn then return end
+    local show = self:GetSetting("showAbandonAllButton")
+    self.AbandonBtn:SetShown(show and true or false)
+end
+
+----------------------------------------------------------------------
+-- Abandon All Quests — confirmation dialog with typed confirmation
+----------------------------------------------------------------------
+function TTQ:ShowAbandonAllConfirmation()
+    -- Reuse existing dialog if already open
+    if self._abandonDialog and self._abandonDialog:IsShown() then
+        self._abandonDialog:Hide()
+        return
+    end
+
+    local dd = {
+        Width  = 320,
+        Font   = "Fonts\\FRIZQT__.TTF",
+        Bg     = { 0.06, 0.06, 0.08, 0.97 },
+        Border = { 0.22, 0.24, 0.30, 0.50 },
+    }
+
+    if not self._abandonDialog then
+        local dialog = CreateFrame("Frame", "TTQAbandonDialog", UIParent, "BackdropTemplate")
+        dialog:SetWidth(dd.Width)
+        dialog:SetHeight(200)
+        dialog:SetPoint("CENTER", UIParent, "CENTER", 0, 100)
+        dialog:SetFrameStrata("DIALOG")
+        dialog:SetFrameLevel(200)
+        dialog:SetClampedToScreen(true)
+        dialog:SetMovable(true)
+        dialog:EnableMouse(true)
+        dialog:RegisterForDrag("LeftButton")
+        dialog:SetScript("OnDragStart", dialog.StartMoving)
+        dialog:SetScript("OnDragStop", dialog.StopMovingOrSizing)
+        dialog:SetBackdrop({
+            bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            edgeSize = 14,
+            tile     = true,
+            tileSize = 16,
+            insets   = { left = 4, right = 4, top = 4, bottom = 4 },
+        })
+        dialog:SetBackdropColor(dd.Bg[1], dd.Bg[2], dd.Bg[3], dd.Bg[4])
+        dialog:SetBackdropBorderColor(dd.Border[1], dd.Border[2], dd.Border[3], dd.Border[4])
+
+        -- Skull icon
+        local skull = dialog:CreateTexture(nil, "ARTWORK")
+        skull:SetSize(32, 32)
+        skull:SetPoint("TOP", dialog, "TOP", 0, -14)
+        if C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("poi-graveyard-neutral") then
+            skull:SetAtlas("poi-graveyard-neutral", false)
+        else
+            skull:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-Skull")
+        end
+        skull:SetVertexColor(1, 0.3, 0.3)
+
+        -- Title
+        local title = dialog:CreateFontString(nil, "OVERLAY")
+        title:SetFont(dd.Font, 14, "OUTLINE")
+        title:SetTextColor(1, 0.3, 0.3)
+        title:SetPoint("TOP", skull, "BOTTOM", 0, -6)
+        title:SetText("Abandon All Quests")
+
+        -- Warning text
+        local warning = dialog:CreateFontString(nil, "OVERLAY")
+        warning:SetFont(dd.Font, 11, "")
+        warning:SetTextColor(0.85, 0.85, 0.85)
+        warning:SetPoint("TOP", title, "BOTTOM", 0, -10)
+        warning:SetWidth(dd.Width - 40)
+        warning:SetJustifyH("CENTER")
+        warning:SetWordWrap(true)
+        warning:SetText('This will abandon ALL quests in your quest log.\nType "abandon" below to confirm.')
+
+        -- EditBox for confirmation
+        local editBox = CreateFrame("EditBox", nil, dialog, "BackdropTemplate")
+        editBox:SetSize(180, 28)
+        editBox:SetPoint("TOP", warning, "BOTTOM", 0, -12)
+        editBox:SetAutoFocus(false)
+        editBox:SetMaxLetters(20)
+        editBox:SetFont(dd.Font, 13, "")
+        editBox:SetTextColor(1, 1, 1)
+        editBox:SetJustifyH("CENTER")
+        editBox:SetBackdrop({
+            bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            edgeSize = 10,
+            tile     = true,
+            tileSize = 16,
+            insets   = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        editBox:SetBackdropColor(0.1, 0.1, 0.12, 0.95)
+        editBox:SetBackdropBorderColor(0.3, 0.3, 0.35, 0.5)
+        dialog.editBox = editBox
+
+        -- Confirm button (disabled until user types "abandon")
+        local confirmBtn = CreateFrame("Button", nil, dialog, "BackdropTemplate")
+        confirmBtn:SetSize(100, 28)
+        confirmBtn:SetPoint("BOTTOMRIGHT", dialog, "BOTTOM", -6, 14)
+        confirmBtn:SetBackdrop({
+            bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            edgeSize = 10,
+            tile     = true,
+            tileSize = 16,
+            insets   = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        confirmBtn:SetBackdropColor(0.5, 0.1, 0.1, 0.9)
+        confirmBtn:SetBackdropBorderColor(0.6, 0.2, 0.2, 0.6)
+        local confirmText = confirmBtn:CreateFontString(nil, "OVERLAY")
+        confirmText:SetFont(dd.Font, 12, "")
+        confirmText:SetPoint("CENTER")
+        confirmText:SetText("Abandon")
+        confirmText:SetTextColor(0.5, 0.5, 0.5)
+        dialog.confirmBtn = confirmBtn
+        dialog.confirmText = confirmText
+
+        -- Cancel button
+        local cancelBtn = CreateFrame("Button", nil, dialog, "BackdropTemplate")
+        cancelBtn:SetSize(100, 28)
+        cancelBtn:SetPoint("BOTTOMLEFT", dialog, "BOTTOM", 6, 14)
+        cancelBtn:SetBackdrop({
+            bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            edgeSize = 10,
+            tile     = true,
+            tileSize = 16,
+            insets   = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        cancelBtn:SetBackdropColor(0.15, 0.15, 0.18, 0.9)
+        cancelBtn:SetBackdropBorderColor(0.3, 0.3, 0.35, 0.5)
+        local cancelText = cancelBtn:CreateFontString(nil, "OVERLAY")
+        cancelText:SetFont(dd.Font, 12, "")
+        cancelText:SetPoint("CENTER")
+        cancelText:SetText("Cancel")
+        cancelText:SetTextColor(0.85, 0.85, 0.85)
+
+        cancelBtn:SetScript("OnClick", function()
+            dialog:Hide()
+        end)
+        cancelBtn:SetScript("OnEnter", function()
+            cancelText:SetTextColor(1, 1, 1)
+        end)
+        cancelBtn:SetScript("OnLeave", function()
+            cancelText:SetTextColor(0.85, 0.85, 0.85)
+        end)
+
+        confirmBtn:SetScript("OnClick", function()
+            local typed = dialog.editBox:GetText():lower():gsub("%s+", "")
+            if typed == "abandon" then
+                TTQ:AbandonAllQuests()
+                dialog:Hide()
+            end
+        end)
+
+        -- Enable/disable confirm based on typed text
+        editBox:SetScript("OnTextChanged", function(self)
+            local typed = self:GetText():lower():gsub("%s+", "")
+            local valid = (typed == "abandon")
+            if valid then
+                dialog.confirmText:SetTextColor(1, 0.3, 0.3)
+                dialog.confirmBtn:SetBackdropColor(0.6, 0.15, 0.15, 0.9)
+            else
+                dialog.confirmText:SetTextColor(0.5, 0.5, 0.5)
+                dialog.confirmBtn:SetBackdropColor(0.5, 0.1, 0.1, 0.9)
+            end
+        end)
+
+        editBox:SetScript("OnEnterPressed", function(self)
+            local typed = self:GetText():lower():gsub("%s+", "")
+            if typed == "abandon" then
+                TTQ:AbandonAllQuests()
+                dialog:Hide()
+            end
+        end)
+
+        editBox:SetScript("OnEscapePressed", function()
+            dialog:Hide()
+        end)
+
+        -- Close on Escape key
+        dialog:SetScript("OnKeyDown", function(self, key)
+            if key == "ESCAPE" then
+                self:SetPropagateKeyboardInput(false)
+                self:Hide()
+            else
+                self:SetPropagateKeyboardInput(true)
+            end
+        end)
+
+        self._abandonDialog = dialog
+    end
+
+    -- Reset state and show
+    local dialog = self._abandonDialog
+    dialog.editBox:SetText("")
+    dialog.confirmText:SetTextColor(0.5, 0.5, 0.5)
+    dialog.confirmBtn:SetBackdropColor(0.5, 0.1, 0.1, 0.9)
+    dialog:Show()
+    dialog.editBox:SetFocus()
+end
+
+----------------------------------------------------------------------
+-- Execute abandon-all logic
+----------------------------------------------------------------------
+function TTQ:AbandonAllQuests()
+    local numEntries = C_QuestLog.GetNumQuestLogEntries()
+    local abandoned = 0
+    for i = 1, numEntries do
+        local info = C_QuestLog.GetInfo(i)
+        if info and info.questID and not info.isHeader and not info.isHidden then
+            C_QuestLog.SetSelectedQuest(info.questID)
+            C_QuestLog.SetAbandonQuest()
+            C_QuestLog.AbandonQuest()
+            abandoned = abandoned + 1
+        end
+    end
+    if abandoned > 0 then
+        print("|cffff5555TommyTwoquests:|r Abandoned " .. abandoned .. " quest(s).")
+    end
+    self:SafeRefreshTracker()
 end
 
 ----------------------------------------------------------------------
@@ -819,6 +1086,7 @@ function TTQ:RefreshTracker()
     end
     -- Get data
     local quests = self:GetTrackedQuests()
+    self:EnrichQuestItems(quests)
     local _, groups = self:FilterAndGroupQuests(quests)
 
     -- Zone label (truncate so it doesn't overlap header)
@@ -914,18 +1182,19 @@ function TTQ:RefreshTracker()
         end)
 
         header.frame:SetScript("OnEnter", function(btn)
-            GameTooltip:SetOwner(btn, "ANCHOR_LEFT")
-            GameTooltip:SetText(scenarioInfo.name, 1, 1, 1)
-            if scenarioInfo.stageName and scenarioInfo.stageName ~= "" then
-                GameTooltip:AddLine(scenarioInfo.stageName, 0.8, 0.8, 0.8)
+            if TTQ:BeginTooltip(btn) then
+                GameTooltip:SetText(scenarioInfo.name, 1, 1, 1)
+                if scenarioInfo.stageName and scenarioInfo.stageName ~= "" then
+                    GameTooltip:AddLine(scenarioInfo.stageName, 0.8, 0.8, 0.8)
+                end
+                if scenarioInfo.stageDesc and scenarioInfo.stageDesc ~= "" then
+                    GameTooltip:AddLine(scenarioInfo.stageDesc, 0.6, 0.6, 0.6, true)
+                end
+                GameTooltip:AddLine(isScenarioCollapsed and "Click to expand" or "Click to collapse", 0.7, 0.7, 0.7)
+                TTQ:EndTooltip()
             end
-            if scenarioInfo.stageDesc and scenarioInfo.stageDesc ~= "" then
-                GameTooltip:AddLine(scenarioInfo.stageDesc, 0.6, 0.6, 0.6, true)
-            end
-            GameTooltip:AddLine(isScenarioCollapsed and "Click to expand" or "Click to collapse", 0.7, 0.7, 0.7)
-            GameTooltip:Show()
         end)
-        header.frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        header.frame:SetScript("OnLeave", function() TTQ:HideTooltip() end)
 
         table.insert(activeHeaders, header)
         local groupContentHeight = SECTION_HEADER_HEIGHT + 2
@@ -1065,12 +1334,13 @@ function TTQ:RefreshTracker()
         end)
 
         header.frame:SetScript("OnEnter", function(btn)
-            GameTooltip:SetOwner(btn, "ANCHOR_LEFT")
-            GameTooltip:SetText(group.headerName)
-            GameTooltip:AddLine(isGroupCollapsed and "Click to expand" or "Click to collapse", 0.7, 0.7, 0.7)
-            GameTooltip:Show()
+            if TTQ:BeginTooltip(btn) then
+                GameTooltip:SetText(group.headerName)
+                GameTooltip:AddLine(isGroupCollapsed and "Click to expand" or "Click to collapse", 0.7, 0.7, 0.7)
+                TTQ:EndTooltip()
+            end
         end)
-        header.frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        header.frame:SetScript("OnLeave", function() TTQ:HideTooltip() end)
 
         table.insert(activeHeaders, header)
         local groupContentHeight = SECTION_HEADER_HEIGHT + 2
