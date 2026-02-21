@@ -28,6 +28,7 @@
     "COMBATLOG_OBJECT_AFFILIATION_RAID",
     "COMBATLOG_OBJECT_AFFILIATION_MINE",
     "COMBATLOG_OBJECT_AFFILIATION_PARTY",
-    "class"
+    "class",
+    "LFGListUtil_FindQuestGroup"
   ]
 }

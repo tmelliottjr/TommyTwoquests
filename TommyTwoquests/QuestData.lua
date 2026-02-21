@@ -2,9 +2,40 @@
 -- TommyTwoquests — QuestData.lua
 -- Quest log data layer: wraps C_QuestLog APIs into structured data
 ----------------------------------------------------------------------
-local AddonName, TTQ = ...
-local table, ipairs = table, ipairs
+local AddonName, TTQ                               = ...
+local table, ipairs                                = table, ipairs
 local C_QuestLog, C_Map, C_SuperTrack, C_TaskQuest = C_QuestLog, C_Map, C_SuperTrack, C_TaskQuest
+local C_Timer                                      = C_Timer
+local GetQuestLogQuestText                         = GetQuestLogQuestText
+
+----------------------------------------------------------------------
+-- Quest description cache  (avoids tainting quest-log selection state)
+-- Descriptions are fetched asynchronously so that SetSelectedQuest is
+-- never called in the same execution path as the tracker refresh.
+----------------------------------------------------------------------
+local descCache                                    = {} -- [questID] = description string | false (pending)
+local descPending                                  = {} -- set of questIDs currently queued for fetch
+
+local function FetchDescriptionAsync(questID)
+    if descCache[questID] ~= nil or descPending[questID] then return end
+    descPending[questID] = true
+    C_Timer.After(0, function()
+        descPending[questID] = nil
+        if not C_QuestLog.GetInfo then return end -- safety
+        local old = C_QuestLog.GetSelectedQuest and C_QuestLog.GetSelectedQuest()
+        if C_QuestLog.SetSelectedQuest then
+            C_QuestLog.SetSelectedQuest(questID)
+        end
+        local desc
+        if GetQuestLogQuestText then
+            _, desc = GetQuestLogQuestText()
+        end
+        descCache[questID] = (desc and desc ~= "") and desc or false
+        if C_QuestLog.SetSelectedQuest then
+            C_QuestLog.SetSelectedQuest(old or 0)
+        end
+    end)
+end
 
 ----------------------------------------------------------------------
 -- Tag ID → quest classification
@@ -28,6 +59,25 @@ local TAG_MAP = {
     [263] = "worldquest", -- public quest
     [255] = "pvp",        -- war mode
 }
+
+----------------------------------------------------------------------
+-- Determine if a quest is eligible for the Group Finder shortcut.
+-- Relies purely on WoW API signals — no hardcoded quest lists.
+----------------------------------------------------------------------
+local function IsGroupFinderEligible(questID, info)
+    -- Suggested group size > 1 means the quest is designed for groups
+    if info.suggestedGroup and info.suggestedGroup > 1 then
+        return true
+    end
+
+    -- Elite / group / raid world quests (dragon-framed WQs, world bosses)
+    local tagInfo = C_QuestLog.GetQuestTagInfo(questID)
+    if tagInfo then
+        if tagInfo.isElite then return true end
+    end
+
+    return false
+end
 
 ----------------------------------------------------------------------
 -- Classify a quest by examining all available metadata
@@ -153,45 +203,40 @@ function TTQ:GetTrackedQuests()
                 local difficultyLevel = info.difficultyLevel or 0
 
                 -- Fetch quest description when there are no objectives
+                -- Uses async cache to avoid tainting quest-log selection state
                 local questDescription = nil
                 if (not objectives or #objectives == 0) and not isComplete then
-                    -- GetQuestLogQuestText requires the quest to be selected
-                    local oldSelection = C_QuestLog.GetSelectedQuest and C_QuestLog.GetSelectedQuest()
-                    if C_QuestLog.SetSelectedQuest then
-                        C_QuestLog.SetSelectedQuest(questID)
+                    local cached = descCache[questID]
+                    if cached then            -- string = already fetched
+                        questDescription = cached
+                    elseif cached == nil then -- not yet requested
+                        FetchDescriptionAsync(questID)
                     end
-                    local desc
-                    if GetQuestLogQuestText then
-                        _, desc = GetQuestLogQuestText()
-                    end
-                    questDescription = desc and desc ~= "" and desc or nil
-                    -- Restore previous selection (always restore, even if nil/0)
-                    if C_QuestLog.SetSelectedQuest then
-                        C_QuestLog.SetSelectedQuest(oldSelection or 0)
-                    end
+                    -- cached == false means fetch is pending; show nothing yet
                 end
 
                 table.insert(quests, {
-                    questID          = questID,
-                    title            = info.title or "Unknown Quest",
-                    level            = level,
-                    difficultyLevel  = difficultyLevel,
-                    questType        = questType,
-                    frequency        = info.frequency or 0,
-                    isComplete       = isComplete,
-                    isSuperTracked   = isSuperTracked,
-                    isTask           = isTask or false,
-                    isBounty         = isBounty or false,
-                    objectives       = objectives or {},
-                    progress         = pct,
-                    fulfilled        = fulfilled,
-                    required         = required,
-                    questLogIndex    = i,
-                    campaignID       = info.campaignID,
-                    questDescription = questDescription,
-                    hasQuestItem     = false, -- populated below
-                    questItemLink    = nil,
-                    questItemTexture = nil,
+                    questID               = questID,
+                    title                 = info.title or "Unknown Quest",
+                    level                 = level,
+                    difficultyLevel       = difficultyLevel,
+                    questType             = questType,
+                    frequency             = info.frequency or 0,
+                    isComplete            = isComplete,
+                    isSuperTracked        = isSuperTracked,
+                    isTask                = isTask or false,
+                    isBounty              = isBounty or false,
+                    objectives            = objectives or {},
+                    progress              = pct,
+                    fulfilled             = fulfilled,
+                    required              = required,
+                    questLogIndex         = i,
+                    campaignID            = info.campaignID,
+                    questDescription      = questDescription,
+                    hasQuestItem          = false, -- populated below
+                    questItemLink         = nil,
+                    questItemTexture      = nil,
+                    isGroupFinderEligible = IsGroupFinderEligible(questID, info),
                 })
             end
         end

@@ -46,6 +46,11 @@ local questItemPool = TTQ:CreateObjectPool(
             item.itemBtn:Hide()
             item.itemBtn:SetAlpha(0)
         end
+        -- Hide group finder button on release
+        if item.groupFinderBtn then
+            item.groupFinderBtn:Hide()
+            item.groupFinderBtn:SetAlpha(0)
+        end
     end
 )
 
@@ -194,6 +199,64 @@ function TTQ:CreateQuestItem(parent)
 
     itemBtn:Hide()
     item.itemBtn = itemBtn
+
+    -- Group Finder button (eye icon for group / elite / world boss quests)
+    local groupFinderBtn = CreateFrame("Button", nil, frame, "BackdropTemplate")
+    groupFinderBtn:SetSize(ITEM_BTN_SIZE, ITEM_BTN_SIZE)
+    groupFinderBtn:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+    groupFinderBtn:SetFrameLevel(frame:GetFrameLevel() + 5)
+    groupFinderBtn:RegisterForClicks("LeftButtonUp")
+
+    groupFinderBtn:SetBackdrop({
+        bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 8,
+        tile     = true,
+        tileSize = 8,
+        insets   = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    groupFinderBtn:SetBackdropColor(0.08, 0.08, 0.10, 0.92)
+    groupFinderBtn:SetBackdropBorderColor(0.35, 0.35, 0.40, 0.6)
+
+    local gfIcon = groupFinderBtn:CreateTexture(nil, "ARTWORK")
+    gfIcon:SetSize(ITEM_BTN_SIZE - 6, ITEM_BTN_SIZE - 6)
+    gfIcon:SetPoint("CENTER")
+    pcall(gfIcon.SetAtlas, gfIcon, "socialqueuing-icon-eye", false)
+    groupFinderBtn.icon = gfIcon
+
+    local gfHl = groupFinderBtn:CreateTexture(nil, "HIGHLIGHT")
+    gfHl:SetAllPoints(gfIcon)
+    gfHl:SetColorTexture(1, 1, 1, 0.18)
+
+    groupFinderBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText("Find a Group", 1, 1, 1)
+        GameTooltip:AddLine("Click to search for a group for this quest.", 0.5, 0.8, 1)
+        GameTooltip:Show()
+    end)
+    groupFinderBtn:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+    groupFinderBtn:SetScript("OnClick", function(self)
+        local qID = self._questID
+        if not qID then return end
+        if InCombatLockdown() then
+            print("|cffFFCC00TommyTwoquests:|r Cannot open Group Finder during combat.")
+            return
+        end
+        -- Ensure the LFG list addon is loaded (it is demand-loaded)
+        if C_AddOns and C_AddOns.LoadAddOn then
+            C_AddOns.LoadAddOn("Blizzard_LFGList")
+        elseif LoadAddOn then
+            LoadAddOn("Blizzard_LFGList")
+        end
+        if LFGListUtil_FindQuestGroup then
+            LFGListUtil_FindQuestGroup(qID)
+        end
+    end)
+
+    groupFinderBtn:Hide()
+    item.groupFinderBtn = groupFinderBtn
 
     -- Store original color for hover restore
     item._nameColorR = nameColor.r
@@ -580,6 +643,38 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
         end
     end
 
+    -- Group Finder button (eye icon for group / elite / world boss quests)
+    if item.groupFinderBtn then
+        if quest.isGroupFinderEligible and not quest.isComplete then
+            local gfBtn = item.groupFinderBtn
+            gfBtn._questID = questID
+            gfBtn:ClearAllPoints()
+
+            -- Position relative to itemBtn when visible, else at the right edge
+            local itemBtnVisible = item.itemBtn:IsShown() and item.itemBtn:GetAlpha() > 0
+            if itemBtnVisible then
+                local position = self:GetSetting("questItemPosition") or "right"
+                if position == "right" then
+                    gfBtn:SetPoint("RIGHT", item.itemBtn, "LEFT", -2, 0)
+                else
+                    -- Item button floats outside; group finder takes the right edge
+                    gfBtn:SetPoint("RIGHT", item.frame, "RIGHT", 0, 0)
+                end
+            else
+                gfBtn:SetPoint("RIGHT", item.frame, "RIGHT", 0, 0)
+            end
+
+            gfBtn:SetAlpha(1)
+            gfBtn:Show()
+
+            -- Shrink quest name to make room for the group finder button
+            item.name:SetPoint("RIGHT", gfBtn, "LEFT", -3, 0)
+        else
+            item.groupFinderBtn:Hide()
+            item.groupFinderBtn:SetAlpha(0)
+        end
+    end
+
     -- Build objective items (skip if collapsed)
     if item.objectiveItems then
         for _, objItem in ipairs(item.objectiveItems) do
@@ -753,6 +848,25 @@ function TTQ:ShowQuestContextMenu(item)
             },
         },
     }
+
+    -- Conditionally insert "Find Group" after "Show on Map" (index 3)
+    if quest.isGroupFinderEligible then
+        table.insert(config.buttons, 4, {
+            label = "Find Group",
+            tooltip = "Search the Group Finder for groups doing this quest.",
+            onClick = function()
+                if InCombatLockdown() then return end
+                if C_AddOns and C_AddOns.LoadAddOn then
+                    C_AddOns.LoadAddOn("Blizzard_LFGList")
+                elseif LoadAddOn then
+                    LoadAddOn("Blizzard_LFGList")
+                end
+                if LFGListUtil_FindQuestGroup then
+                    LFGListUtil_FindQuestGroup(questID)
+                end
+            end,
+        })
+    end
 
     self._questContextMenu:Show(config)
 end

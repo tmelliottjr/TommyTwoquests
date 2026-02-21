@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.4.1 - February 21, 2026
+
+**Bug Fixes**
+
+- Fixed a taint error ("attempt to perform arithmetic on a secret number value") that occurred when hovering over world quest POIs on the map
+- Quest descriptions for quests with no objectives are now fetched asynchronously, preventing `C_QuestLog.SetSelectedQuest` from tainting the quest-log selection state during tracker refreshes
+- World quest reward tooltips no longer break due to tainted money values propagating through `MoneyFrame_Update`
+
 ## v1.4.0 - February 21, 2026
 
 **Quest Item Buttons**
