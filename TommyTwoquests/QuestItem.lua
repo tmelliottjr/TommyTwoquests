@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------
--- TommyTwoquests — QuestItem.lua
+-- TommyTwoquests -- QuestItem.lua
 -- Quest row: focus icon, quest name, per-quest collapse, click handlers
 ----------------------------------------------------------------------
 local AddonName, TTQ = ...
@@ -130,7 +130,7 @@ function TTQ:CreateQuestItem(parent)
     expandInd:Hide()
     item.expandInd = expandInd
 
-    -- Quest name text — fixed indent so position never shifts
+    -- Quest name text -- fixed indent so position never shifts
     local nameSize = TTQ:GetSetting("questNameFontSize")
     local nameColor = TTQ:GetSetting("questNameColor")
     local name = TTQ:CreateText(frame, nameSize, nameColor, "LEFT")
@@ -142,7 +142,7 @@ function TTQ:CreateQuestItem(parent)
     name:SetMaxLines(1)
     item.name = name
 
-    -- Quest item-use button (SecureActionButton — can use items without tainting)
+    -- Quest item-use button (SecureActionButton -- can use items without tainting)
     -- Created parented to the quest row; re-parented at update time when
     -- the user picks "left" positioning (floats outside the tracker).
     itemBtnCounter = itemBtnCounter + 1
@@ -284,6 +284,13 @@ function TTQ:CreateQuestItem(parent)
                 TTQ:SetQuestCollapsed(questID, not isCollapsed)
                 TTQ:SafeRefreshTracker()
             else
+                -- Kaliel-style behavior: complete auto-complete quests directly.
+                if questData.isAutoComplete and questData.isComplete and ShowQuestComplete then
+                    ShowQuestComplete(questID)
+                    TTQ:SafeRefreshTracker()
+                    return
+                end
+
                 -- Click: focus the quest and open it on the map
                 C_SuperTrack.SetSuperTrackedQuestID(questID)
                 if QuestMapFrame_OpenToQuestDetails then
@@ -353,7 +360,11 @@ function TTQ:CreateQuestItem(parent)
                 GameTooltip:AddLine(timeStr, 1, 0.82, 0)
             end
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("Click: Focus & show on map", 0.5, 0.8, 1)
+            if questData.isAutoComplete and questData.isComplete then
+                GameTooltip:AddLine("Click: Complete quest", 0.5, 0.8, 1)
+            else
+                GameTooltip:AddLine("Click: Focus & show on map", 0.5, 0.8, 1)
+            end
             GameTooltip:AddLine("Shift-click: Expand/Collapse", 0.5, 0.8, 1)
             GameTooltip:AddLine("Right-click: Menu", 0.5, 0.8, 1)
             TTQ:EndTooltip()

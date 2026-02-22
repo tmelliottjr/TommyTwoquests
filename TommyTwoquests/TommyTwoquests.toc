@@ -2,10 +2,13 @@
 ## Title: TommyTwoquests
 ## Notes: A modern, elegant replacement quest tracker with filtering, icons, and full configurability.
 ## Author: TommyTwoquests
-## Version: 1.6.1
+## Version: 2.0.0
 ## SavedVariables: TommyTwoquestsDB
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
 ## DefaultState: enabled
+## OptionalDeps: LibSharedMedia-3.0, Auctionator
+
+EventFrame.lua
 
 embeds.xml
 

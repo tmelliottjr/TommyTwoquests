@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.6.2 - February 22, 2026
+**Ace Migration**
+- Migrated to Ace
+
 ## v1.6.1 - February 22, 2026
 
 **Bug Fixes**

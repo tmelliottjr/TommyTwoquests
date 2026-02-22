@@ -1,10 +1,11 @@
 ----------------------------------------------------------------------
--- TommyTwoquests — Utils.lua
+-- TommyTwoquests -- Utils.lua
 -- Shared utilities: font helpers, color conversion, atlas icon map
 ----------------------------------------------------------------------
 local AddonName, TTQ = ...
 local table, ipairs, pairs, string, type = table, ipairs, pairs, string, type
 local C_QuestLog, C_Timer, pcall = C_QuestLog, C_Timer, pcall
+local InCombatLockdown = InCombatLockdown
 
 ----------------------------------------------------------------------
 -- Font list: use LibSharedMedia-3.0 (same as most addons) when available
@@ -51,7 +52,7 @@ TTQ.FontOutlines = {
 }
 
 ----------------------------------------------------------------------
--- Atlas icon mapping (MAP ICON GUIDE): quest type → atlas texture name
+-- Atlas icon mapping (MAP ICON GUIDE): quest type -> atlas texture name
 -- Available = not accepted / available in world; Turnin = tracked or complete
 ----------------------------------------------------------------------
 -- Default/available state (e.g. not yet turned in, or generic)
@@ -256,8 +257,8 @@ function TTQ:DeepMerge(dst, src)
 end
 
 ----------------------------------------------------------------------
--- Tracker tooltip helpers — centralises the showTrackerTooltips guard.
--- Use for quest items, section headers, recipes, reagents — anything
+-- Tracker tooltip helpers -- centralises the showTrackerTooltips guard.
+-- Use for quest items, section headers, recipes, reagents -- anything
 -- inside the tracker content area.  Header-bar buttons (gear, filter,
 -- abandon, collapse) should call GameTooltip directly so they always
 -- show tooltips regardless of this setting.
@@ -284,7 +285,7 @@ function TTQ:HideTooltip()
 end
 
 ----------------------------------------------------------------------
--- Safe font setter — applies font with pcall fallback to default
+-- Safe font setter -- applies font with pcall fallback to default
 ----------------------------------------------------------------------
 function TTQ:SafeSetFont(fontString, face, size, outline)
     if not fontString then return end
@@ -294,7 +295,22 @@ function TTQ:SafeSetFont(fontString, face, size, outline)
 end
 
 ----------------------------------------------------------------------
--- Debounced tracker refresh — waits for event bursts to settle.
+-- Combat-lockdown deferred refresh.
+-- When a refresh is requested during combat, we flag it and listen
+-- for PLAYER_REGEN_ENABLED so we can rebuild once combat ends.
+-- Uses QueueEvent to avoid tainted RegisterEvent calls.
+----------------------------------------------------------------------
+do
+    function TTQ:_DeferRefreshAfterCombat()
+        self._refreshPendingCombat = true
+        -- PLAYER_REGEN_ENABLED is already registered via QueueEvent
+        -- in QuestTracker.lua (combat events).  The callback in
+        -- SafeRefreshTracker checks _refreshPendingCombat and handles it.
+    end
+end
+
+----------------------------------------------------------------------
+-- Debounced tracker refresh -- waits for event bursts to settle.
 -- Always resets the timer so the refresh fires 0.1s after the LAST
 -- event, ensuring the quest log is in its final state (e.g. after
 -- QUEST_TURNED_IN + QUEST_REMOVED both fire before we rebuild).
@@ -320,6 +336,14 @@ function TTQ:SafeRefreshTracker()
         self._refreshTimer:Cancel()
         self._refreshTimer = nil
     end
+
+    -- Defer the entire refresh while in combat to avoid
+    -- ADDON_ACTION_BLOCKED on protected frame operations (SetHeight, etc.).
+    if InCombatLockdown() then
+        self:_DeferRefreshAfterCombat()
+        return
+    end
+
     local ok, err = xpcall(self.RefreshTracker, function(e)
         return e .. "\n" .. (debugstack and debugstack() or "")
     end, self)
@@ -348,8 +372,8 @@ end
 
 ----------------------------------------------------------------------
 -- Generic object pool factory
--- createFn(parent) → new object (must have .frame field)
--- resetFn(obj)     → clean up object before returning to pool
+-- createFn(parent) -> new object (must have .frame field)
+-- resetFn(obj)     -> clean up object before returning to pool
 ----------------------------------------------------------------------
 function TTQ:CreateObjectPool(createFn, resetFn)
     local pool = {}

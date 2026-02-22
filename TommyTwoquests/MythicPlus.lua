@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------
--- TommyTwoquests — MythicPlus.lua
+-- TommyTwoquests -- MythicPlus.lua
 -- Mythic+ dungeon tracker: timer, chest tiers, bosses, enemy forces
 ----------------------------------------------------------------------
 local AddonName, TTQ                                                                  = ...
@@ -156,7 +156,7 @@ function TTQ:GetMythicPlusData()
     data.dungeonName = name or "Mythic+"
     data.timeLimit = timeLimit or 0
   elseif mpState.cachedData then
-    -- API returns nil after completion — use cached values
+    -- API returns nil after completion -- use cached values
     data.mapID = mpState.cachedData.mapID
     data.dungeonName = mpState.cachedData.dungeonName
     data.timeLimit = mpState.cachedData.timeLimit
@@ -386,7 +386,7 @@ function TTQ:GetMythicPlusData()
   end
 
   -- Cache this data snapshot for use after completion (only when we
-  -- have meaningful content — skip caching empty/fallback-only tables).
+  -- have meaningful content -- skip caching empty/fallback-only tables).
   if data.dungeonName ~= "" and (data.bossesTotal > 0 or data.enemyTotal > 0) then
     mpState.cachedData = data
   end
@@ -413,11 +413,11 @@ end
 ----------------------------------------------------------------------
 local function GetTimerRemainingInfo(data)
   if data.runCompleted then
-    -- Run is finished — show result instead of countdown
+    -- Run is finished -- show result instead of countdown
     if data.isOverTime then
       return "OVER TIME", MP.Colors.timerOver
     end
-    -- Completed on time — show chest tier earned
+    -- Completed on time -- show chest tier earned
     local chestLabel = "+" .. (data.completionChest or 1)
     return chestLabel .. " TIMED", MP.Colors.chestEarned
   end
@@ -545,7 +545,7 @@ local function CreateMPDisplay(parent, width)
   el.timerRemaining = timerRemaining
 
   ----------------------------------------------------------------
-  -- 2b. Timer progress bar: left→right spanning full width with
+  -- 2b. Timer progress bar: left->right spanning full width with
   --     chest tier threshold tick marks (+3, +2, +1)
   ----------------------------------------------------------------
   local timerBarRow = CreateFrame("Frame", nil, f)
@@ -560,7 +560,7 @@ local function CreateMPDisplay(parent, width)
   timerBarBg:SetColorTexture(0.12, 0.12, 0.14, 0.7)
   el.timerBarBg = timerBarBg
 
-  -- Bar fill (grows left→right as time elapses)
+  -- Bar fill (grows left->right as time elapses)
   local timerBarFill = timerBarRow:CreateTexture(nil, "ARTWORK", nil, 1)
   timerBarFill:SetHeight(6)
   timerBarFill:SetPoint("BOTTOMLEFT", timerBarBg, "BOTTOMLEFT", 0, 0)
@@ -616,7 +616,7 @@ local function CreateMPDisplay(parent, width)
   end
 
   ----------------------------------------------------------------
-  -- 4. Deaths row (interactive — hover for death log)
+  -- 4. Deaths row (interactive -- hover for death log)
   ----------------------------------------------------------------
   local deathRow = CreateFrame("Button", nil, f)
   deathRow:SetHeight(14)
@@ -698,7 +698,7 @@ local function CreateMPDisplay(parent, width)
         GameTooltip:AddLine("|cff666666Untracked|r  x" .. untracked .. "  |cff888888(+" .. penalty .. "s)|r", 0.4, 0.4,
           0.4)
       end
-      -- Total summary — use API penalty if available, otherwise calculate
+      -- Total summary -- use API penalty if available, otherwise calculate
       local totalPenalty = (apiTimePenalty > 0) and apiTimePenalty or (totalDeaths * perDeathPenalty)
       GameTooltip:AddLine(" ")
       GameTooltip:AddLine(
@@ -714,7 +714,7 @@ local function CreateMPDisplay(parent, width)
         numDeaths = C_ChallengeMode.GetDeathCount() or 0
       end
       if numDeaths > 0 then
-        GameTooltip:AddLine(numDeaths .. " death(s) — details not captured", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine(numDeaths .. " death(s) -- details not captured", 0.6, 0.6, 0.6)
       end
     end
     GameTooltip:Show()
@@ -725,7 +725,7 @@ local function CreateMPDisplay(parent, width)
   el.deathHitbox = deathHitbox
 
   ----------------------------------------------------------------
-  -- 5. Enemy forces bar — taller bar with prominent percentage
+  -- 5. Enemy forces bar -- taller bar with prominent percentage
   ----------------------------------------------------------------
   local trashRow = CreateFrame("Frame", nil, f)
   trashRow:SetHeight(28)
@@ -1095,7 +1095,7 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
   y = y + 16
 
   ----------------------------------------------------------------
-  -- Chest tiers — aligned under their tick marks on the bar
+  -- Chest tiers -- aligned under their tick marks on the bar
   ----------------------------------------------------------------
   local barActualWidth = el.timerBarBg:GetWidth()
   if not barActualWidth or barActualWidth <= 0 then barActualWidth = barTotalWidth end
@@ -1160,7 +1160,7 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
   ----------------------------------------------------------------
   if data.enemyTotal > 0 then
     TTQ:SafeSetFont(el.trashLabel, objFont, objSize, objOutline)
-    -- Larger, brighter font for percentage — key information
+    -- Larger, brighter font for percentage -- key information
     local pctFontSize = objSize + 2
     TTQ:SafeSetFont(el.trashPct, objFont, pctFontSize, objOutline)
 
@@ -1413,7 +1413,7 @@ function TTQ:StopMythicPlusTimer()
 end
 
 ----------------------------------------------------------------------
--- M+ events — all routing through TTQ:RegisterEvent() which uses
+-- M+ events -- all routing through TTQ:RegisterEvent() which uses
 -- the single _EventDispatcher frame created in Utils.lua (first
 -- loaded file, clean execution context).  No per-file frames needed.
 ----------------------------------------------------------------------
@@ -1470,7 +1470,7 @@ do
     return true
   end
 
-  -- M+ event handler — dispatched by TTQ:RegisterEvent()
+  -- M+ event handler -- dispatched by TTQ:RegisterEvent()
   local function OnMPEvent(evt, ...)
     -- Hook the keystone frame when Blizzard_ChallengesUI loads
     if evt == "ADDON_LOADED" then
@@ -1484,7 +1484,7 @@ do
       ResetMPState()
       mpState.startTime = GetTime()
 
-      -- Run completed — freeze timer, keep display
+      -- Run completed -- freeze timer, keep display
     elseif evt == "CHALLENGE_MODE_COMPLETED" then
       mpState.runCompleted = true
       -- Use the authoritative CompletionInfo API
@@ -1494,7 +1494,7 @@ do
         local ok, info = pcall(C_ChallengeMode.GetChallengeCompletionInfo)
         if ok and info then
           if info.time and info.time > 0 then
-            completionElapsed = info.time / 1000 -- convert ms → seconds
+            completionElapsed = info.time / 1000 -- convert ms -> seconds
           end
           if info.onTime ~= nil then
             mpState.completedOnTime = info.onTime
@@ -1551,7 +1551,7 @@ do
         TTQ:ScheduleRefresh()
       end
 
-      -- Death count API — sync total count only (do not try to identify who died)
+      -- Death count API -- sync total count only (do not try to identify who died)
     elseif evt == "CHALLENGE_MODE_DEATH_COUNT_UPDATED" then
       if not C_ChallengeMode or not C_ChallengeMode.GetDeathCount then return end
       local numDeaths = C_ChallengeMode.GetDeathCount() or 0
@@ -1610,9 +1610,11 @@ do
     end
   end
 
-  -- Register all M+ events through the central dispatcher.
-  -- Uses QueueEvent at file scope; actual RegisterEvent happens
-  -- in OnEnable via AceEvent-3.0's clean frame.
+  ----------------------------------------------------------------------
+  -- M+ event registration -- routes through QueueEvent (EventFrame.lua)
+  -- which registers via EventRegistry BEFORE embeds.xml loads, so the
+  -- execution context is untainted.
+  ----------------------------------------------------------------------
   local mpEvents = {
     "PLAYER_ENTERING_WORLD",
     "ZONE_CHANGED_NEW_AREA",
@@ -1628,6 +1630,11 @@ do
   }
   for _, ev in ipairs(mpEvents) do
     TTQ:QueueEvent(ev, OnMPEvent)
+  end
+
+  -- Stub so InitTracker's conditional call is harmless
+  function TTQ:RegisterMythicPlusEvents()
+    -- Already registered at file scope above via QueueEvent
   end
 end
 

@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------
--- TommyTwoquests — RecipeTracker.lua
+-- TommyTwoquests -- RecipeTracker.lua
 -- Tracked profession recipes: data, display, Auctionator integration
 ----------------------------------------------------------------------
 local AddonName, TTQ = ...
