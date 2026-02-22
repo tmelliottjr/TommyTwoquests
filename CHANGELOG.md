@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.6.0 - February 21, 2026
+
+- Migrate to AceAddon-3.0, AceEvent-3.0, and AceTimer-3.0 for more robust event handling and timer management
+- Refactor event registration to use AceEvent's `RegisterEvent` and `UnregisterEvent` methods, improving reliability and reducing boilerplate
+
 ## v1.5.0 - TBD
 
 **Mythic+ Timer Overhaul**
