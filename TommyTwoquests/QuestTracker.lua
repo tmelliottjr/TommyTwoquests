@@ -884,15 +884,11 @@ function TTQ:UpdateScrollFades()
 end
 
 ----------------------------------------------------------------------
--- File-scope event frames — registered during addon loading (clean
--- execution context) so Frame:RegisterEvent() never triggers
--- ADDON_ACTION_FORBIDDEN.
+-- Event registration — queued at file scope, registered in OnEnable
+-- via AceEvent-3.0 (which uses its own clean XML-created frame).
 ----------------------------------------------------------------------
 do
-    -- Quest-related events
-    local qf = CreateFrame("Frame")
-    TTQ._questEventFrame = qf
-
+    -- Quest-related events → schedule refresh
     local questEvents = {
         "QUEST_LOG_UPDATE",
         "QUEST_WATCH_LIST_CHANGED",
@@ -909,19 +905,15 @@ do
         "TRACKED_RECIPE_UPDATE",
         "BAG_UPDATE_DELAYED",
         "TRADE_SKILL_LIST_UPDATE",
-        "CRAFTINGORDERS_RECIPE_LIST_UPDATE",
     }
-    for _, ev in ipairs(questEvents) do
-        pcall(qf.RegisterEvent, qf, ev)
-    end
-    qf:SetScript("OnEvent", function()
+    local function OnQuestEvent()
         TTQ:ScheduleRefresh()
-    end)
+    end
+    for _, ev in ipairs(questEvents) do
+        TTQ:QueueEvent(ev, OnQuestEvent)
+    end
 
-    -- Scenario / dungeon events
-    local sf = CreateFrame("Frame")
-    TTQ._scenarioEventFrame = sf
-
+    -- Scenario / dungeon events → schedule refresh
     local scenarioEvents = {
         "SCENARIO_UPDATE",
         "SCENARIO_CRITERIA_UPDATE",
@@ -932,18 +924,11 @@ do
         "UPDATE_INSTANCE_INFO",
     }
     for _, ev in ipairs(scenarioEvents) do
-        pcall(sf.RegisterEvent, sf, ev)
+        TTQ:QueueEvent(ev, OnQuestEvent)
     end
-    sf:SetScript("OnEvent", function()
-        TTQ:ScheduleRefresh()
-    end)
 
     -- Combat hiding (enter / leave combat)
-    local cf = CreateFrame("Frame")
-    TTQ._combatEventFrame = cf
-    cf:RegisterEvent("PLAYER_REGEN_DISABLED")
-    cf:RegisterEvent("PLAYER_REGEN_ENABLED")
-    cf:SetScript("OnEvent", function(_, evt)
+    local function OnCombatEvent(evt)
         if not TTQ.Tracker then return end
         if not TTQ.GetSetting then return end
         if not TTQ:GetSetting("hideInCombat") then return end
@@ -955,7 +940,9 @@ do
         elseif evt == "PLAYER_REGEN_ENABLED" then
             TTQ.Tracker:Show()
         end
-    end)
+    end
+    TTQ:QueueEvent("PLAYER_REGEN_DISABLED", OnCombatEvent)
+    TTQ:QueueEvent("PLAYER_REGEN_ENABLED", OnCombatEvent)
 end
 
 ----------------------------------------------------------------------

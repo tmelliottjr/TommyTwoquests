@@ -30,6 +30,8 @@
     "COMBATLOG_OBJECT_AFFILIATION_PARTY",
     "class",
     "LFGListUtil_FindQuestGroup",
-    "UISpecialFrames"
+    "UISpecialFrames",
+    "ChallengesKeystoneFrame",
+    "NUM_BAG_SLOTS"
   ]
 }

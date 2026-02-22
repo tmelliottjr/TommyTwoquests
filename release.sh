@@ -48,12 +48,22 @@ echo "Current version: $CURRENT"
 echo "Next version:    $NEXT"
 echo ""
 
+# --- Check for uncommitted changes (before modifying any files) ---
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "Error: you have uncommitted changes. Commit or stash them first."
+  exit 1
+fi
+
 # --- Check CHANGELOG.md has an entry for this version ---
+RELEASE_DATE=$(date +"%B %-d, %Y")
 if grep -qP "^## Unreleased(\s|$)" CHANGELOG.md 2>/dev/null; then
-  # Rename "Unreleased" to the new version
-  sed -i "s/^## Unreleased.*/## v${NEXT}/" CHANGELOG.md
-  echo "Updated CHANGELOG.md: Unreleased → v${NEXT}"
-elif ! grep -qP "^## v${NEXT}(\s|$)" CHANGELOG.md 2>/dev/null; then
+  # Rename "Unreleased" to the new version with today's date
+  sed -i "s/^## Unreleased.*/## v${NEXT} - ${RELEASE_DATE}/" CHANGELOG.md
+  echo "Updated CHANGELOG.md: Unreleased → v${NEXT} - ${RELEASE_DATE}"
+elif grep -qP "^## v${NEXT}(\s|$)" CHANGELOG.md 2>/dev/null; then
+  # Section exists — update TBD date if present
+  sed -i "s/^## v${NEXT}\s*-\s*TBD/## v${NEXT} - ${RELEASE_DATE}/" CHANGELOG.md
+else
   echo "Warning: CHANGELOG.md has no '## Unreleased' or '## v${NEXT}' section."
   echo "Add your release notes before releasing."
   read -rp "Continue anyway? (y/N) " confirm
@@ -61,12 +71,6 @@ elif ! grep -qP "^## v${NEXT}(\s|$)" CHANGELOG.md 2>/dev/null; then
     echo "Aborted. Update CHANGELOG.md and try again."
     exit 1
   fi
-fi
-
-# --- Check for uncommitted changes ---
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "Error: you have uncommitted changes. Commit or stash them first."
-  exit 1
 fi
 
 # --- Check tag doesn't already exist ---

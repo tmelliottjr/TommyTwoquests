@@ -1,93 +1,94 @@
 ----------------------------------------------------------------------
 -- TommyTwoquests — Core.lua
--- Addon initialization, event dispatcher, saved variables
+-- Addon initialization via AceAddon-3.0, saved variables, slash cmds
 ----------------------------------------------------------------------
 local AddonName, TTQ = ...
 local table, ipairs, type, pcall, print = table, ipairs, type, pcall, print
 local CreateFrame, C_Timer = CreateFrame, C_Timer
 local strtrim, SlashCmdList, Settings = strtrim, SlashCmdList, Settings
+
+-- Create the addon object using AceAddon + AceEvent + AceTimer.
+-- The addon object IS the TTQ table (shared private namespace).
+-- AceEvent provides RegisterEvent/UnregisterEvent that use the
+-- library’s own clean frame (created during XML loading), which
+-- permanently solves the ADDON_ACTION_FORBIDDEN taint issue.
+LibStub("AceAddon-3.0"):NewAddon(TTQ, "TommyTwoquests", "AceEvent-3.0", "AceTimer-3.0")
 _G.TommyTwoquests = TTQ
 
 -- Read version from .toc metadata (single source of truth)
 TTQ.Version = C_AddOns and C_AddOns.GetAddOnMetadata
     and C_AddOns.GetAddOnMetadata(AddonName, "Version") or "1.2.0"
-TTQ.Callbacks = {}
 
 ----------------------------------------------------------------------
--- Event system — uses a clean, untainted frame for all registrations
+-- OnInitialize — called after ADDON_LOADED, saved vars are available
 ----------------------------------------------------------------------
--- Create a separate, untainted event dispatcher frame
--- (distinct from any frame that might touch secure/protected content)
-TTQ._EventDispatcher = CreateFrame("Frame")
-TTQ._EventDispatcher:SetScript("OnEvent", function(_, event, ...)
-    local cbs = TTQ.Callbacks[event]
-    if cbs then
-        for _, cb in ipairs(cbs) do
-            cb(event, ...)
-        end
-    end
-    -- When leaving combat, retry any deferred event registrations
-    if event == "PLAYER_REGEN_ENABLED" and TTQ._deferredEvents then
-        for ev in pairs(TTQ._deferredEvents) do
-            TTQ._EventDispatcher:RegisterEvent(ev)
-        end
-        TTQ._deferredEvents = nil
-    end
-end)
-TTQ._EventDispatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-
-function TTQ:RegisterEvent(event, callback)
-    if not self.Callbacks[event] then
-        self.Callbacks[event] = {}
-        if InCombatLockdown and InCombatLockdown() then
-            -- Defer until combat ends
-            if not self._deferredEvents then self._deferredEvents = {} end
-            self._deferredEvents[event] = true
-        else
-            -- pcall guards against ADDON_ACTION_FORBIDDEN if this is
-            -- called from a tainted execution path.  File-scope callers
-            -- (the preferred approach) will always succeed.
-            local ok, err = pcall(self._EventDispatcher.RegisterEvent,
-                self._EventDispatcher, event)
-            if not ok then
-                -- Fall back: defer until combat ends (PLAYER_REGEN_ENABLED)
-                if not self._deferredEvents then self._deferredEvents = {} end
-                self._deferredEvents[event] = true
-            end
-        end
-    end
-    table.insert(self.Callbacks[event], callback)
-end
-
-function TTQ:UnregisterEvent(event)
-    self.Callbacks[event] = nil
-    self._EventDispatcher:UnregisterEvent(event)
-end
-
-----------------------------------------------------------------------
--- Saved Variables — load on ADDON_LOADED
-----------------------------------------------------------------------
-TTQ:RegisterEvent("ADDON_LOADED", function(event, addon)
-    if addon ~= AddonName then return end
-
+function TTQ:OnInitialize()
     if not TommyTwoquestsDB then
-        TommyTwoquestsDB = TTQ:DeepCopy(TTQ.Defaults)
+        TommyTwoquestsDB = self:DeepCopy(self.Defaults)
     else
-        TTQ:DeepMerge(TommyTwoquestsDB, TTQ.Defaults)
+        self:DeepMerge(TommyTwoquestsDB, self.Defaults)
+    end
+end
+
+----------------------------------------------------------------------
+-- OnEnable — called at PLAYER_LOGIN, game data is available.
+-- This is the safe place to register all events.
+----------------------------------------------------------------------
+function TTQ:OnEnable()
+    -- Run versioned data migrations
+    self:RunMigrations()
+
+    -- Build multi-callback dispatch table from queued registrations.
+    -- AceEvent only allows one callback per event per object, so we
+    -- collect all callbacks into a table keyed by event name and
+    -- register a single dispatcher function for each event.
+    self._eventCallbacks = self._eventCallbacks or {}
+    if self._pendingEvents then
+        for _, entry in ipairs(self._pendingEvents) do
+            local ev = entry.event
+            if not self._eventCallbacks[ev] then
+                self._eventCallbacks[ev] = {}
+            end
+            self._eventCallbacks[ev][#self._eventCallbacks[ev] + 1] = entry.callback
+        end
+        self._pendingEvents = nil
     end
 
-    TTQ:UnregisterEvent("ADDON_LOADED")
+    -- Register each event once via AceEvent, dispatching to all
+    -- queued callbacks for that event.
+    for ev, cbs in pairs(self._eventCallbacks) do
+        self:RegisterEvent(ev, function(event, ...)
+            for _, cb in ipairs(cbs) do
+                cb(event, ...)
+            end
+        end)
+    end
 
-    -- Fire a custom ready event after a frame so all files are loaded.
-    -- Use a one-shot OnUpdate instead of C_Timer.After to avoid tainting
-    -- the execution path (C_Timer callbacks are dispatched through a
-    -- secure frame, causing ADDON_ACTION_FORBIDDEN for RegisterEvent).
-    local initFrame = CreateFrame("Frame")
-    initFrame:SetScript("OnUpdate", function(self)
-        self:SetScript("OnUpdate", nil)
-        TTQ:OnReady()
-    end)
-end)
+    -- Initialize the tracker (created in QuestTracker.lua)
+    if self.InitTracker then
+        self:InitTracker()
+    end
+
+    -- Initialize the settings panel (created in Settings.lua)
+    if self.InitSettings then
+        self:InitSettings()
+    end
+
+    -- Print load message
+    print("|cff00ccffTommyTwoquests|r loaded. Type |cff00ccff/ttq|r for options.")
+end
+
+----------------------------------------------------------------------
+-- QueueEvent — called at file scope by other files during loading.
+-- Events are collected and bulk-registered in OnEnable() above.
+----------------------------------------------------------------------
+function TTQ:QueueEvent(event, callback)
+    if not self._pendingEvents then self._pendingEvents = {} end
+    self._pendingEvents[#self._pendingEvents + 1] = {
+        event = event,
+        callback = callback,
+    }
+end
 
 ----------------------------------------------------------------------
 -- Versioned migrations — run once per schema bump
@@ -135,27 +136,6 @@ function TTQ:RunMigrations()
         self.Migrations[i](TommyTwoquestsDB)
     end
     TommyTwoquestsDB._schemaVersion = #self.Migrations
-end
-
-----------------------------------------------------------------------
--- Ready handler — called once DB is loaded
-----------------------------------------------------------------------
-function TTQ:OnReady()
-    -- Run versioned data migrations
-    self:RunMigrations()
-
-    -- Initialize the tracker (created in QuestTracker.lua)
-    if self.InitTracker then
-        self:InitTracker()
-    end
-
-    -- Initialize the settings panel (created in Settings.lua)
-    if self.InitSettings then
-        self:InitSettings()
-    end
-
-    -- Print load message
-    print("|cff00ccffTommyTwoquests|r loaded. Type |cff00ccff/ttq|r for options.")
 end
 
 ----------------------------------------------------------------------

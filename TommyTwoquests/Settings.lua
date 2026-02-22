@@ -677,6 +677,14 @@ local function BuildOptionCategories()
                 { type = "toggle",  name = "Show quest count",       desc = "Show number of quests per group in headers.",        dbKey = "showHeaderCount" },
             },
         },
+        {
+            key = "MythicPlus",
+            name = "Mythic+",
+            options = {
+                { type = "section", name = "Keystone" },
+                { type = "toggle",  name = "Auto-insert keystone", desc = "Automatically insert your Mythic+ keystone when you open the keystone socket UI inside the matching dungeon.", dbKey = "autoInsertKeystone" },
+            },
+        },
     }
 end
 
@@ -948,7 +956,7 @@ function TTQ:BuildSettingsUI()
                 currentCard.contentAnchor = w
                 -- Use measured height if available (accounts for desc text wrapping)
                 local dropdownH = (w._measuredHeight and w._measuredHeight > 0) and w._measuredHeight or
-                ROW_HEIGHTS.dropdown
+                    ROW_HEIGHTS.dropdown
                 currentCard.contentHeight = currentCard.contentHeight + Def.OptionGap + dropdownH
                 -- Re-measure on show to catch late layout changes
                 local cardRef = currentCard

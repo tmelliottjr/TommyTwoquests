@@ -150,7 +150,7 @@ local function BuildMockData()
     completionChest = 0,
     chestTimers     = {},
     deaths          = mockState.deaths,
-    deathPenalty    = mockState.deaths * 5,
+    deathPenalty    = mockState.deaths * (mockState.keystoneLevel >= 10 and 15 or 5),
     bosses          = {},
     bossesKilled    = 0,
     bossesTotal     = #preset.bosses,
@@ -558,7 +558,7 @@ local function CreateDevPanel()
   if devPanel then return devPanel end
 
   local f = CreateFrame("Frame", "TTQDevPanel", UIParent, "BackdropTemplate")
-  f:SetSize(S.PanelW, 600)   -- height set at the end
+  f:SetSize(S.PanelW, 600) -- height set at the end
   f:SetPoint("LEFT", UIParent, "LEFT", 20, 0)
   f:SetFrameStrata("DIALOG")
   f:SetFrameLevel(100)
@@ -868,6 +868,7 @@ local function CreateDevPanel()
   end)
 
   devPanel = f
+  f:Hide() -- ensure panel starts hidden so the first toggle shows it
   return f
 end
 

@@ -93,6 +93,9 @@ TTQ.Defaults = {
 
     -- Collapsed individual recipes (keyed by "recipe_<recipeID>")
     collapsedRecipes         = {},
+
+    -- Mythic+
+    autoInsertKeystone       = true,
 }
 
 ----------------------------------------------------------------------

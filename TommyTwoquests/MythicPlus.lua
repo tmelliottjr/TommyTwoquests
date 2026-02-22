@@ -18,8 +18,12 @@ local UnitClass, UnitGUID, RAID_CLASS_COLORS                                    
 local UnitName, UnitExists, UnitIsDeadOrGhost                                         = UnitName, UnitExists,
     UnitIsDeadOrGhost
 local UnitInParty, UnitHealth                                                         = UnitInParty, UnitHealth
+local UnitIsFeignDeath                                                                = UnitIsFeignDeath
 local GetInstanceInfo                                                                 = GetInstanceInfo
 local GameTooltip                                                                     = GameTooltip
+local bit, CursorHasItem, C_Container, C_Item                                         = bit, CursorHasItem,
+    C_Container, C_Item
+local COMBATLOG_OBJECT_TYPE_PLAYER                                                    = COMBATLOG_OBJECT_TYPE_PLAYER
 
 ----------------------------------------------------------------------
 -- Constants
@@ -87,7 +91,14 @@ local function ResetMPState()
   mpState.lastDeathCount = 0
 end
 
-local DEATH_PENALTY_PER = 5 -- seconds per death
+-- Returns the per-death time penalty (in seconds) for a given key level.
+-- Keys at level 10 and above incur a 15-second penalty; lower keys incur 5s.
+local function GetDeathPenaltyPer(keystoneLevel)
+  if keystoneLevel and keystoneLevel >= 10 then
+    return 15
+  end
+  return 5
+end
 
 ----------------------------------------------------------------------
 -- Detection: is the player in an active Mythic+ run?
@@ -637,20 +648,25 @@ local function CreateMPDisplay(parent, width)
   deathHitbox:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(deathRow, "ANCHOR_BOTTOMLEFT")
     GameTooltip:SetText("Death Log", 0.90, 0.30, 0.30)
+    -- Get authoritative death count and time penalty from API
+    local apiDeaths, apiTimePenalty = 0, 0
+    if C_ChallengeMode and C_ChallengeMode.GetDeathCount then
+      apiDeaths, apiTimePenalty = C_ChallengeMode.GetDeathCount()
+      apiDeaths = apiDeaths or 0
+      apiTimePenalty = apiTimePenalty or 0
+    end
+    local totalDeaths = math.max(apiDeaths, #mpState.deathLog)
+    -- Derive per-death penalty from the API when possible,
+    -- otherwise fall back to key-level-based calculation.
+    local perDeathPenalty
+    if apiDeaths > 0 and apiTimePenalty > 0 then
+      perDeathPenalty = apiTimePenalty / apiDeaths
+    else
+      local curData = TTQ:GetMythicPlusData()
+      perDeathPenalty = GetDeathPenaltyPer(curData and curData.keystoneLevel)
+    end
     if #mpState.deathLog > 0 then
-      -- Attempt to retroactively resolve any "Unknown" entries
-      for _, entry in ipairs(mpState.deathLog) do
-        if entry.name == "Unknown" and not entry.class then
-          -- Try to find an unattributed dead party member
-          local resolvedName, resolvedClass = TTQ:FindDeadPartyMember()
-          if resolvedName then
-            entry.name = resolvedName
-            entry.class = resolvedClass
-          end
-        end
-      end
-
-      -- Aggregate deaths per player: { name, class, count, totalPenalty }
+      -- Aggregate deaths per player: { name, class, count }
       local byPlayer = {} -- name -> { class, count }
       local order = {}    -- insertion-order of names
       for _, entry in ipairs(mpState.deathLog) do
@@ -671,18 +687,19 @@ local function CreateMPDisplay(parent, width)
           local cc = RAID_CLASS_COLORS[info.class]
           cr, cg, cb = cc.r, cc.g, cc.b
         end
-        local penalty = info.count * DEATH_PENALTY_PER
-        local displayName = pName == "Unknown" and "|cff666666Unknown|r" or pName
-        local line = displayName .. "  x" .. info.count .. "  |cff888888(+" .. penalty .. "s)|r"
+        local penalty = info.count * perDeathPenalty
+        local line = pName .. "  x" .. info.count .. "  |cff888888(+" .. penalty .. "s)|r"
         GameTooltip:AddLine(line, cr, cg, cb)
       end
-      -- Total summary — use API count as authoritative
-      local totalDeaths = #mpState.deathLog
-      if C_ChallengeMode and C_ChallengeMode.GetDeathCount then
-        local apiDeaths = C_ChallengeMode.GetDeathCount() or 0
-        if apiDeaths > totalDeaths then totalDeaths = apiDeaths end
+      -- Show untracked deaths if API reports more than we identified
+      local untracked = totalDeaths - #mpState.deathLog
+      if untracked > 0 then
+        local penalty = untracked * perDeathPenalty
+        GameTooltip:AddLine("|cff666666Untracked|r  x" .. untracked .. "  |cff888888(+" .. penalty .. "s)|r", 0.4, 0.4,
+          0.4)
       end
-      local totalPenalty = totalDeaths * DEATH_PENALTY_PER
+      -- Total summary — use API penalty if available, otherwise calculate
+      local totalPenalty = (apiTimePenalty > 0) and apiTimePenalty or (totalDeaths * perDeathPenalty)
       GameTooltip:AddLine(" ")
       GameTooltip:AddLine(
         totalDeaths ..
@@ -1396,28 +1413,74 @@ function TTQ:StopMythicPlusTimer()
 end
 
 ----------------------------------------------------------------------
--- Create the M+ event frame at file scope (untainted execution
--- context) so Frame:RegisterEvent() never triggers
--- ADDON_ACTION_FORBIDDEN.
+-- M+ events — all routing through TTQ:RegisterEvent() which uses
+-- the single _EventDispatcher frame created in Utils.lua (first
+-- loaded file, clean execution context).  No per-file frames needed.
 ----------------------------------------------------------------------
 do
-  local evFrame = CreateFrame("Frame")
-  TTQ._mpEventFrame = evFrame
+  -- Auto-insert keystone: hook ChallengesKeystoneFrame OnShow
+  -- The frame is part of a load-on-demand UI addon
+  local keystoneHooked = false
+  local function SlotKeystoneFromBags()
+    if not C_Container or not C_ChallengeMode then return end
+    for container = 0, (NUM_BAG_SLOTS or 4) do
+      local slots = C_Container.GetContainerNumSlots(container)
+      for slot = 1, slots do
+        local itemLink = C_Container.GetContainerItemLink(container, slot)
+        if itemLink and itemLink:match("|Hkeystone:") then
+          C_Container.PickupContainerItem(container, slot)
+          if CursorHasItem() then
+            C_ChallengeMode.SlotKeystone()
+          end
+          return
+        end
+      end
+    end
+  end
+  local function TryHookKeystoneFrame()
+    if keystoneHooked then return end
+    local frame = ChallengesKeystoneFrame or ChallengeKeystoneFrame
+    if frame and frame.HookScript then
+      frame:HookScript("OnShow", function()
+        if TTQ:GetSetting("autoInsertKeystone") then
+          SlotKeystoneFromBags()
+        end
+      end)
+      keystoneHooked = true
+    end
+  end
+  -- Try immediately in case the addon is already loaded
+  TryHookKeystoneFrame()
 
-  evFrame:RegisterEvent("CHALLENGE_MODE_START")
-  evFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
-  evFrame:RegisterEvent("CHALLENGE_MODE_RESET")
-  evFrame:RegisterEvent("CHALLENGE_MODE_DEATH_COUNT_UPDATED")
-  evFrame:RegisterEvent("WORLD_STATE_TIMER_START")
-  evFrame:RegisterEvent("WORLD_STATE_TIMER_STOP")
-  evFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-  evFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-  -- In WoW 12.0 (Midnight) COMBAT_LOG_EVENT_UNFILTERED registration is
-  -- protected; use the new standalone UNIT_DIED event instead
-  evFrame:RegisterEvent("UNIT_DIED")
+  -- Helper: log a player death with dedup
+  local function LogPlayerDeath(name, classToken, elapsed)
+    if not name then return false end
+    -- Deduplicate: skip if this player was already logged within 3 seconds
+    for idx = #mpState.deathLog, math.max(1, #mpState.deathLog - 8), -1 do
+      local prev = mpState.deathLog[idx]
+      if prev and prev.name == name and math.abs(prev.elapsed - elapsed) < 3 then
+        return false -- already logged
+      end
+    end
+    mpState.deathLog[#mpState.deathLog + 1] = {
+      name = name,
+      class = classToken,
+      elapsed = elapsed,
+    }
+    return true
+  end
 
-  evFrame:SetScript("OnEvent", function(_, evt, ...)
-    if evt == "WORLD_STATE_TIMER_START" then
+  -- M+ event handler — dispatched by TTQ:RegisterEvent()
+  local function OnMPEvent(evt, ...)
+    -- Hook the keystone frame when Blizzard_ChallengesUI loads
+    if evt == "ADDON_LOADED" then
+      local addon = ...
+      if not keystoneHooked then
+        -- Try hooking on every addon load (frame name may appear late)
+        TryHookKeystoneFrame()
+      end
+      return
+    elseif evt == "WORLD_STATE_TIMER_START" then
       ResetMPState()
       mpState.startTime = GetTime()
 
@@ -1463,157 +1526,109 @@ do
         end
       end
 
-      -- Track individual player deaths via UNIT_DIED event
-      -- (Midnight 12.0 standalone event — receives GUID as first arg)
+      -- Track player deaths via combat log (primary method)
+    elseif evt == "COMBAT_LOG_EVENT_UNFILTERED" then
+      local _, subEvent, _, _, _, _, _, destGUID, destName, destFlags =
+          CombatLogGetCurrentEventInfo()
+      if subEvent ~= "UNIT_DIED" then return end
+      if not destGUID or not destName then return end
+      -- Only handle player deaths (not NPCs, pets, etc.)
+      if not destFlags or bit.band(destFlags, COMBATLOG_OBJECT_TYPE_PLAYER) == 0 then return end
+      -- Must be in an active M+ run
+      local _, instanceType, difficultyID = GetInstanceInfo()
+      if not (difficultyID == 8 and instanceType == "party") and not mpState.runCompleted then return end
+      -- Ignore Feign Death (hunter ability that triggers UNIT_DIED in combat log)
+      if UnitIsFeignDeath and UnitIsFeignDeath(destName) then return end
+      -- Must be in our party
+      if not (UnitInParty(destName) or UnitName("player") == destName) then return end
+
+      local _, classToken = UnitClass(destName)
+      if not classToken then classToken = TTQ:FindClassForName(destName) end
+
+      local elapsed = mpState.startTime and (GetTime() - mpState.startTime) or 0
+      if LogPlayerDeath(destName, classToken, elapsed) then
+        mpState.lastDeathCount = #mpState.deathLog
+        TTQ:ScheduleRefresh()
+      end
+
+      -- Death count API — sync total count only (do not try to identify who died)
+    elseif evt == "CHALLENGE_MODE_DEATH_COUNT_UPDATED" then
+      if not C_ChallengeMode or not C_ChallengeMode.GetDeathCount then return end
+      local numDeaths = C_ChallengeMode.GetDeathCount() or 0
+      mpState.lastDeathCount = numDeaths
+
+      -- Standalone UNIT_DIED event (12.0+, receives unitGUID)
     elseif evt == "UNIT_DIED" then
       local guid = ...
       if not guid then return end
-      -- SecretWhenUnitIdentityRestricted: skip secret (non-party) GUIDs
       if issecretvalue and issecretvalue(guid) then return end
+      if type(guid) ~= "string" or not guid:match("^Player%-") then return end
 
-      -- Only handle Player-type GUIDs (skip mobs, pets, NPCs)
-      if not guid:match("^Player%-") then return end
-
-      -- Must be in an active or just-completed run
       local _, instanceType, difficultyID = GetInstanceInfo()
       if not (difficultyID == 8 and instanceType == "party") and not mpState.runCompleted then return end
 
-      -- Resolve name and class using multiple strategies
       local destName, classToken
-
-      -- Strategy 1: GetPlayerInfoByGUID (returns localizedClass, englishClass, ...)
-      if GetPlayerInfoByGUID then
-        local ok, locClass, engClass, _, _, pName = pcall(GetPlayerInfoByGUID, guid)
-        if ok and pName and pName ~= "" then
-          destName = pName
-          classToken = engClass
-        end
-      end
-
-      -- Strategy 2: UnitNameFromGUID / UnitClassFromGUID (12.0 API)
-      if not destName and UnitNameFromGUID then
-        local n = UnitNameFromGUID(guid)
-        if n then destName = n end
-      end
-      if not classToken and UnitClassFromGUID then
-        local _, token = UnitClassFromGUID(guid)
-        if token then classToken = token end
-      end
-
-      -- Strategy 3: scan party/player unit GUIDs directly
-      if not destName then
-        if UnitGUID("player") == guid then
-          destName = UnitName("player")
-          local _, cls = UnitClass("player")
-          classToken = classToken or cls
-        else
-          for i = 1, 4 do
-            local unit = "party" .. i
-            if UnitExists(unit) and UnitGUID(unit) == guid then
-              destName = UnitName(unit)
-              local _, cls = UnitClass(unit)
-              classToken = classToken or cls
-              break
-            end
-          end
-        end
-      end
-
-      -- Must have resolved a name and it must be in our party
-      if not destName then return end
-      if not (UnitInParty(destName) or UnitName("player") == destName) then return end
-
-      -- Fallback class detection via party scan
-      if not classToken then
-        classToken = TTQ:FindClassForName(destName)
-      end
-
-      -- Calculate elapsed time at death
-      local elapsed = 0
-      if mpState.startTime then
-        elapsed = GetTime() - mpState.startTime
-      end
-
-      -- Deduplicate: skip if this player was already logged within 3 seconds
-      -- (guards against CHALLENGE_MODE_DEATH_COUNT_UPDATED racing us)
-      for idx = #mpState.deathLog, math.max(1, #mpState.deathLog - 4), -1 do
-        local prev = mpState.deathLog[idx]
-        if prev and prev.name == destName and math.abs(prev.elapsed - elapsed) < 3 then
-          return -- already logged by backup handler
-        end
-      end
-
-      mpState.deathLog[#mpState.deathLog + 1] = {
-        name = destName,
-        class = classToken,
-        elapsed = elapsed,
-      }
-      mpState.lastDeathCount = #mpState.deathLog
-
-      -- Trigger a throttled UI refresh so the death shows immediately
-      TTQ:ScheduleRefresh()
-
-      -- Backup death detection via official death count API
-    elseif evt == "CHALLENGE_MODE_DEATH_COUNT_UPDATED" then
-      if not C_ChallengeMode or not C_ChallengeMode.GetDeathCount then return end
-
-      local numDeaths = C_ChallengeMode.GetDeathCount() or 0
-      if numDeaths > mpState.lastDeathCount and #mpState.deathLog < numDeaths then
-        local elapsed = 0
-        if mpState.startTime then
-          elapsed = GetTime() - mpState.startTime
-        end
-        -- Build set of recently logged names to avoid duplicates
-        local recentlyLogged = {}
-        for _, entry in ipairs(mpState.deathLog) do
-          if math.abs(entry.elapsed - elapsed) < 2 then
-            recentlyLogged[entry.name] = true
-          end
-        end
-        -- Scan for dead party members (check dead OR low health — they may
-        -- have been battle-rezzed between dying and this event firing)
-        local foundAny = false
-        if UnitIsDeadOrGhost("player") then
-          local pName = UnitName("player")
-          if pName and not recentlyLogged[pName] then
-            local _, cls = UnitClass("player")
-            mpState.deathLog[#mpState.deathLog + 1] = { name = pName, class = cls, elapsed = elapsed }
-            foundAny = true
-          end
-        end
+      -- Resolve name from GUID via party scan
+      if UnitGUID("player") == guid then
+        destName = UnitName("player")
+        local _, cls = UnitClass("player")
+        classToken = cls
+      else
         for i = 1, 4 do
           local unit = "party" .. i
-          if UnitExists(unit) and UnitIsDeadOrGhost(unit) then
-            local pName = UnitName(unit)
-            if pName and not recentlyLogged[pName] then
-              local _, cls = UnitClass(unit)
-              mpState.deathLog[#mpState.deathLog + 1] = { name = pName, class = cls, elapsed = elapsed }
-              foundAny = true
-            end
+          if UnitExists(unit) and UnitGUID(unit) == guid then
+            destName = UnitName(unit)
+            local _, cls = UnitClass(unit)
+            classToken = cls
+            break
           end
         end
-
-        -- If the API says more deaths occurred but we couldn't identify who
-        -- died (e.g. battle-rez happened before this event fired), add
-        -- placeholder entries so the death log stays in sync with the count
-        local missing = numDeaths - #mpState.deathLog
-        for _ = 1, missing do
-          mpState.deathLog[#mpState.deathLog + 1] = {
-            name = "Unknown",
-            class = nil,
-            elapsed = elapsed,
-          }
+      end
+      -- Fallback GUID resolution APIs
+      if not destName and GetPlayerInfoByGUID then
+        local ok, _, engClass, _, _, pName = pcall(GetPlayerInfoByGUID, guid)
+        if ok and pName and pName ~= "" then
+          destName = pName; classToken = engClass
         end
       end
-      -- Always sync count so we don't re-process the same deaths
-      mpState.lastDeathCount = numDeaths
+      if not destName and UnitNameFromGUID then destName = UnitNameFromGUID(guid) end
+      if not classToken and destName then classToken = TTQ:FindClassForName(destName) end
+      if not destName then return end
+      if UnitIsFeignDeath and UnitIsFeignDeath(destName) then return end
+      if not (UnitInParty(destName) or UnitName("player") == destName) then return end
+
+      local elapsed = mpState.startTime and (GetTime() - mpState.startTime) or 0
+      if LogPlayerDeath(destName, classToken, elapsed) then
+        mpState.lastDeathCount = #mpState.deathLog
+        TTQ:ScheduleRefresh()
+      end
     end
 
-    -- Throttled refresh for all M+ events
-    if evt ~= "UNIT_DIED" then
+    -- Throttled refresh for all M+ events (skip high-frequency combat log events)
+    if evt ~= "UNIT_DIED" and evt ~= "COMBAT_LOG_EVENT_UNFILTERED" then
       TTQ:ScheduleRefresh()
     end
-  end)
+  end
+
+  -- Register all M+ events through the central dispatcher.
+  -- Uses QueueEvent at file scope; actual RegisterEvent happens
+  -- in OnEnable via AceEvent-3.0's clean frame.
+  local mpEvents = {
+    "PLAYER_ENTERING_WORLD",
+    "ZONE_CHANGED_NEW_AREA",
+    "ADDON_LOADED",
+    "CHALLENGE_MODE_START",
+    "CHALLENGE_MODE_COMPLETED",
+    "CHALLENGE_MODE_RESET",
+    "CHALLENGE_MODE_DEATH_COUNT_UPDATED",
+    "WORLD_STATE_TIMER_START",
+    "WORLD_STATE_TIMER_STOP",
+    "COMBAT_LOG_EVENT_UNFILTERED",
+    "UNIT_DIED",
+  }
+  for _, ev in ipairs(mpEvents) do
+    TTQ:QueueEvent(ev, OnMPEvent)
+  end
 end
 
 ----------------------------------------------------------------------
@@ -1637,26 +1652,4 @@ function TTQ:FindClassForName(name)
     return cls
   end
   return nil
-end
-
-----------------------------------------------------------------------
--- Helper: find a dead party member (for backup death detection)
-----------------------------------------------------------------------
-function TTQ:FindDeadPartyMember()
-  -- Check player first
-  if UnitIsDeadOrGhost("player") then
-    local name = UnitName("player")
-    local _, cls = UnitClass("player")
-    return name, cls
-  end
-  -- Check party members
-  for i = 1, 4 do
-    local unit = "party" .. i
-    if UnitExists(unit) and UnitIsDeadOrGhost(unit) then
-      local name = UnitName(unit)
-      local _, cls = UnitClass(unit)
-      return name, cls
-    end
-  end
-  return nil, nil
 end
