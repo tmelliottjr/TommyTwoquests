@@ -1,12 +1,11 @@
 ----------------------------------------------------------------------
--- TommyTwoquests — QuestData.lua
+-- TommyTwoquests -- QuestData.lua
 -- Quest log data layer: wraps C_QuestLog APIs into structured data
 ----------------------------------------------------------------------
 local AddonName, TTQ                               = ...
 local table, ipairs                                = table, ipairs
 local C_QuestLog, C_Map, C_SuperTrack, C_TaskQuest = C_QuestLog, C_Map, C_SuperTrack, C_TaskQuest
 local C_Timer                                      = C_Timer
-local GetQuestLogQuestText                         = GetQuestLogQuestText
 
 ----------------------------------------------------------------------
 -- Quest description cache  (avoids tainting quest-log selection state)
@@ -21,24 +20,14 @@ local function FetchDescriptionAsync(questID)
     descPending[questID] = true
     C_Timer.After(0, function()
         descPending[questID] = nil
-        if not C_QuestLog.GetInfo then return end -- safety
-        local old = C_QuestLog.GetSelectedQuest and C_QuestLog.GetSelectedQuest()
-        if C_QuestLog.SetSelectedQuest then
-            C_QuestLog.SetSelectedQuest(questID)
-        end
-        local desc
-        if GetQuestLogQuestText then
-            _, desc = GetQuestLogQuestText()
-        end
-        descCache[questID] = (desc and desc ~= "") and desc or false
-        if C_QuestLog.SetSelectedQuest then
-            C_QuestLog.SetSelectedQuest(old or 0)
-        end
+        -- Intentionally avoid SetSelectedQuest/GetQuestLogQuestText here.
+        -- Mutating quest selection taints Blizzard quest/map paths.
+        descCache[questID] = false
     end)
 end
 
 ----------------------------------------------------------------------
--- Tag ID → quest classification
+-- Tag ID -> quest classification
 ----------------------------------------------------------------------
 local TAG_MAP = {
     [81]  = "dungeon",
@@ -60,9 +49,30 @@ local TAG_MAP = {
     [255] = "pvp",        -- war mode
 }
 
+local function IsValidQuestID(questID)
+    return type(questID) == "number" and questID > 0
+end
+
+local function IsActivelyWatchedQuest(questID)
+    if C_QuestLog.IsQuestWatched then
+        return C_QuestLog.IsQuestWatched(questID) and true or false
+    end
+
+    if C_QuestLog.GetQuestWatchType then
+        local watchType = C_QuestLog.GetQuestWatchType(questID)
+        if watchType == nil then
+            return false
+        end
+        return watchType ~= 0
+    end
+
+    return false
+end
+
+
 ----------------------------------------------------------------------
 -- Determine if a quest is eligible for the Group Finder shortcut.
--- Relies purely on WoW API signals — no hardcoded quest lists.
+-- Relies purely on WoW API signals -- no hardcoded quest lists.
 ----------------------------------------------------------------------
 local function IsGroupFinderEligible(questID, info)
     -- Suggested group size > 1 means the quest is designed for groups
@@ -163,84 +173,159 @@ local function ClassifyQuest(questID, info)
 end
 
 ----------------------------------------------------------------------
+-- Task-quest eligibility for map/task sourced entries.
+-- Allows real world/event area tasks that may not have a quest-log row,
+-- while filtering out anonymous placeholder task records.
+----------------------------------------------------------------------
+local function IsEligibleTaskQuest(questID, inProgress)
+    if not IsValidQuestID(questID) or not inProgress then
+        return false
+    end
+
+    -- Always allow true world quests.
+    if C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(questID) then
+        return true
+    end
+
+    -- Allow quests with a real quest-log entry.
+    if C_QuestLog.GetLogIndexForQuestID then
+        local logIndex = C_QuestLog.GetLogIndexForQuestID(questID)
+        if logIndex and logIndex > 0 then
+            return true
+        end
+    end
+
+    -- Allow tagged/public/event-style tasks that expose quest tag metadata.
+    if C_QuestLog.GetQuestTagInfo then
+        local tagInfo = C_QuestLog.GetQuestTagInfo(questID)
+        if tagInfo and (tagInfo.worldQuestType or tagInfo.tagID) then
+            return true
+        end
+    end
+
+    return false
+end
+
+----------------------------------------------------------------------
 -- Build the complete quest list from the quest log
 ----------------------------------------------------------------------
 function TTQ:GetTrackedQuests()
     local quests = {}
-    local numEntries = C_QuestLog.GetNumQuestLogEntries()
+    local watchedQuestIDs = {}
+    local addedQuestIDs = {}
 
+    local function TryAddQuest(questID, logIndex, source)
+        if not IsValidQuestID(questID) then return end
+        if addedQuestIDs[questID] then return end
+        if not logIndex or logIndex <= 0 then return end
+
+        local info = C_QuestLog.GetInfo(logIndex)
+        if not info or info.isHeader then return end
+
+        local isTracked = watchedQuestIDs[questID] and true or false
+        local isSuperTracked = C_SuperTrack.GetSuperTrackedQuestID() == questID
+        local isTask = info.isTask and true or false
+        local isBounty = info.isBounty and true or false
+        local isWorldQuest = C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(questID) and true or false
+        local isCompleteBounty = isBounty and C_QuestLog.IsComplete(questID) and true or false
+        local isExplicitTaskType = isWorldQuest or isCompleteBounty
+
+        -- Authoritative inclusion policy:
+        -- 1) tracked/supertracked quests from the watch list,
+        -- 2) explicit world/bounty quests (even if not watched).
+        if not (isTracked or isSuperTracked or isExplicitTaskType) then
+            return
+        end
+
+        -- For normal quest entries, require this to be a real on-quest log item.
+        if not isExplicitTaskType then
+            if info.isHidden then return end
+            if isTask then return end
+            if not (C_QuestLog.IsOnQuest and C_QuestLog.IsOnQuest(questID)) then return end
+        end
+
+        local objectives = C_QuestLog.GetQuestObjectives(questID)
+        local questType = ClassifyQuest(questID, info)
+        local pct, fulfilled, required = self:CalcProgress(objectives)
+        local isComplete = C_QuestLog.IsComplete(questID) and true or false
+        local isAutoComplete = false
+        if info.isAutoComplete ~= nil then
+            isAutoComplete = info.isAutoComplete and true or false
+        end
+        local level = info.level or 0
+        local difficultyLevel = info.difficultyLevel or 0
+
+        local questDescription = nil
+        if (not objectives or #objectives == 0) and not isComplete then
+            local cached = descCache[questID]
+            if cached then
+                questDescription = cached
+            elseif cached == nil then
+                FetchDescriptionAsync(questID)
+            end
+        end
+
+        table.insert(quests, {
+            questID               = questID,
+            title                 = info.title or "Unknown Quest",
+            level                 = level,
+            difficultyLevel       = difficultyLevel,
+            questType             = questType,
+            frequency             = info.frequency or 0,
+            isComplete            = isComplete,
+            isAutoComplete        = isAutoComplete,
+            isSuperTracked        = isSuperTracked,
+            isTask                = isTask,
+            isBounty              = isBounty,
+            objectives            = objectives or {},
+            progress              = pct,
+            fulfilled             = fulfilled,
+            required              = required,
+            questLogIndex         = logIndex,
+            campaignID            = info.campaignID,
+            questDescription      = questDescription,
+            hasQuestItem          = false,
+            questItemLink         = nil,
+            questItemTexture      = nil,
+            isGroupFinderEligible = IsGroupFinderEligible(questID, info),
+            source                = source or "unknown",
+        })
+
+        addedQuestIDs[questID] = true
+    end
+
+    if C_QuestLog.GetNumQuestWatches and C_QuestLog.GetQuestIDForQuestWatchIndex then
+        local numWatches = C_QuestLog.GetNumQuestWatches()
+        for watchIndex = 1, numWatches do
+            local watchedQuestID = C_QuestLog.GetQuestIDForQuestWatchIndex(watchIndex)
+            if type(watchedQuestID) == "number" and watchedQuestID > 0 then
+                watchedQuestIDs[watchedQuestID] = true
+            end
+        end
+    end
+
+    -- Primary source: tracked watches.
+    for questID in pairs(watchedQuestIDs) do
+        local logIndex = C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetLogIndexForQuestID(questID)
+        TryAddQuest(questID, logIndex, "watch")
+    end
+
+    -- Always include super-tracked quest when available.
+    local superTrackedQuestID = C_SuperTrack.GetSuperTrackedQuestID()
+    if type(superTrackedQuestID) == "number" and superTrackedQuestID > 0 then
+        local logIndex = C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetLogIndexForQuestID(superTrackedQuestID)
+        TryAddQuest(superTrackedQuestID, logIndex, "super")
+    end
+
+    -- Include explicit world/bounty quests that may not be watched.
+    local numEntries = C_QuestLog.GetNumQuestLogEntries()
     for i = 1, numEntries do
         local info = C_QuestLog.GetInfo(i)
-        if info and not info.isHeader then
-            local questID = info.questID
-            local isOnMap = true -- default
-
-            -- Determine tracking and world-quest status early so the
-            -- hidden-entry filter below can use them.
-            local isTracked = C_QuestLog.GetQuestWatchType(questID) ~= nil
-            local isSuperTracked = C_SuperTrack.GetSuperTrackedQuestID() == questID
-            local isTask = info.isTask -- world quests / bonus objectives
-            local isBounty = info.isBounty
-            local isWorldQuest = C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(questID)
-
-            -- Include quests that are tracked, focused, task-type, bounty,
-            -- or world quests.  Hidden quests are allowed through when they
-            -- meet any of these criteria (covers event / prepatch quests
-            -- with unusual isHidden flags).
-            if isTracked or isSuperTracked or isTask or isBounty or isWorldQuest then
-                local objectives = C_QuestLog.GetQuestObjectives(questID)
-                local questType = ClassifyQuest(questID, info)
-                local pct, fulfilled, required = self:CalcProgress(objectives)
-
-                -- Use game's completion state only (avoids wrong "complete" icon/title for side quests)
-                local isComplete = C_QuestLog.IsComplete(questID) and true or false
-
-                -- Zone info
-                local questMapID = nil
-                if C_QuestLog.GetQuestAdditionalHighlights then
-                    -- Try to get map for this quest
-                end
-
-                -- Get quest level
-                local level = info.level or 0
-                local difficultyLevel = info.difficultyLevel or 0
-
-                -- Fetch quest description when there are no objectives
-                -- Uses async cache to avoid tainting quest-log selection state
-                local questDescription = nil
-                if (not objectives or #objectives == 0) and not isComplete then
-                    local cached = descCache[questID]
-                    if cached then            -- string = already fetched
-                        questDescription = cached
-                    elseif cached == nil then -- not yet requested
-                        FetchDescriptionAsync(questID)
-                    end
-                    -- cached == false means fetch is pending; show nothing yet
-                end
-
-                table.insert(quests, {
-                    questID               = questID,
-                    title                 = info.title or "Unknown Quest",
-                    level                 = level,
-                    difficultyLevel       = difficultyLevel,
-                    questType             = questType,
-                    frequency             = info.frequency or 0,
-                    isComplete            = isComplete,
-                    isSuperTracked        = isSuperTracked,
-                    isTask                = isTask or false,
-                    isBounty              = isBounty or false,
-                    objectives            = objectives or {},
-                    progress              = pct,
-                    fulfilled             = fulfilled,
-                    required              = required,
-                    questLogIndex         = i,
-                    campaignID            = info.campaignID,
-                    questDescription      = questDescription,
-                    hasQuestItem          = false, -- populated below
-                    questItemLink         = nil,
-                    questItemTexture      = nil,
-                    isGroupFinderEligible = IsGroupFinderEligible(questID, info),
-                })
+        if info and not info.isHeader and IsValidQuestID(info.questID) and not addedQuestIDs[info.questID] then
+            local isWorldQuest = C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(info.questID)
+            local isCompleteBounty = info.isBounty and C_QuestLog.IsComplete(info.questID)
+            if isWorldQuest or isCompleteBounty then
+                TryAddQuest(info.questID, i, "world_or_bounty")
             end
         end
     end
@@ -260,12 +345,17 @@ function TTQ:GetTrackedQuests()
         if taskQuests then
             for _, tq in ipairs(taskQuests) do
                 local tqID = tq.questId
-                if tqID and not seenQuestIDs[tqID] and tq.inProgress then
+                local isWorldQuest = tqID and C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(tqID)
+                local logIndex = tqID and C_QuestLog.GetLogIndexForQuestID
+                    and C_QuestLog.GetLogIndexForQuestID(tqID) or 0
+                local hasRealLogEntry = type(logIndex) == "number" and logIndex > 0
+
+                if tqID and not seenQuestIDs[tqID] and IsEligibleTaskQuest(tqID, tq.inProgress) then
                     local objectives = C_QuestLog.GetQuestObjectives(tqID)
-                    local questType = "worldquest"
+                    local questType = isWorldQuest and "worldquest" or "normal"
 
                     -- Refine type classification
-                    local isWQ = C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(tqID)
+                    local isWQ = isWorldQuest
                     if isWQ then
                         local tagInfo = C_QuestLog.GetQuestTagInfo(tqID)
                         if tagInfo and (tagInfo.tagID == 41 or tagInfo.tagID == 255) then
@@ -273,19 +363,26 @@ function TTQ:GetTrackedQuests()
                         end
                     end
 
-                    -- Try to get quest title from task quest API, then quest log
-                    local title = "World Quest"
-                    if C_TaskQuest.GetQuestInfoByQuestID then
-                        title = C_TaskQuest.GetQuestInfoByQuestID(tqID) or title
+                    local info = hasRealLogEntry and C_QuestLog.GetInfo(logIndex) or nil
+                    if info then
+                        questType = ClassifyQuest(tqID, info)
                     end
+
+                    -- Try to get quest title from quest log first, then task API
+                    local title = (info and info.title) or "World Quest"
                     if C_QuestLog.GetTitleForQuestID then
                         title = C_QuestLog.GetTitleForQuestID(tqID) or title
+                    end
+                    if C_TaskQuest.GetQuestInfoByQuestID then
+                        title = C_TaskQuest.GetQuestInfoByQuestID(tqID) or title
                     end
 
                     local pct, fulfilled, required = self:CalcProgress(objectives)
                     local isComplete = C_QuestLog.IsComplete(tqID) and true or false
-                    local logIndex = C_QuestLog.GetLogIndexForQuestID
-                        and C_QuestLog.GetLogIndexForQuestID(tqID) or 0
+                    local isAutoComplete = false
+                    if info and info.isAutoComplete ~= nil then
+                        isAutoComplete = info.isAutoComplete and true or false
+                    end
 
                     table.insert(quests, {
                         questID               = tqID,
@@ -295,6 +392,7 @@ function TTQ:GetTrackedQuests()
                         questType             = questType,
                         frequency             = 0,
                         isComplete            = isComplete,
+                        isAutoComplete        = isAutoComplete,
                         isSuperTracked        = C_SuperTrack.GetSuperTrackedQuestID() == tqID,
                         isTask                = true,
                         isBounty              = false,
@@ -309,6 +407,7 @@ function TTQ:GetTrackedQuests()
                         questItemLink         = nil,
                         questItemTexture      = nil,
                         isGroupFinderEligible = false,
+                        source                = "task_map",
                     })
                     seenQuestIDs[tqID] = true
                 end
@@ -363,15 +462,16 @@ function TTQ:GetQuestsForCurrentZone()
         end
     end
 
-    -- Task quests (world quests / bonus objectives) on this map —
+    -- Task quests (world quests / bonus objectives) on this map --
     -- ensures event-zone and prepatch world quests are included in
     -- zone filtering and zone-group headers.
     if C_TaskQuest and C_TaskQuest.GetQuestsForPlayerByMapID then
         local taskQuests = C_TaskQuest.GetQuestsForPlayerByMapID(mapID)
         if taskQuests then
             for _, tq in ipairs(taskQuests) do
-                if tq.questId then
-                    zoneQuestIDs[tq.questId] = true
+                local tqID = tq.questId
+                if tqID and IsEligibleTaskQuest(tqID, tq.inProgress) then
+                    zoneQuestIDs[tqID] = true
                 end
             end
         end

@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------
--- TommyTwoquests — ObjectiveItem.lua
+-- TommyTwoquests -- ObjectiveItem.lua
 -- Objective row: text, completion state (no progress bar)
 ----------------------------------------------------------------------
 local AddonName, TTQ = ...

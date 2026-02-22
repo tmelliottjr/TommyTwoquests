@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------
--- TommyTwoquests — QuestTracker.lua
+-- TommyTwoquests -- QuestTracker.lua
 -- Main tracker frame, layout engine, event registration
 ----------------------------------------------------------------------
 local AddonName, TTQ = ...
@@ -44,7 +44,7 @@ local headerPool = TTQ:CreateObjectPool(
         text:SetPoint("LEFT", icon, "RIGHT", 5, 0)
         header.text = text
 
-        -- Collapse indicator (+/-) — font/color set during layout to match quest name style
+        -- Collapse indicator (+/-) -- font/color set during layout to match quest name style
         local collapseInd = TTQ:CreateText(frame, 12, { r = 1, g = 1, b = 1 }, "RIGHT")
         collapseInd:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
         collapseInd:SetWidth(14)
@@ -137,6 +137,11 @@ end
 ----------------------------------------------------------------------
 function TTQ:InitTracker()
     self:CreateTrackerFrame()
+    self:RegisterTrackerEvents()
+    -- Register M+ events (defined in MythicPlus.lua)
+    if self.RegisterMythicPlusEvents then
+        self:RegisterMythicPlusEvents()
+    end
     self:SafeRefreshTracker()
 end
 
@@ -269,7 +274,7 @@ function TTQ:CreateTrackerFrame()
     end)
     self.CollapseBtn = collapseBtn
 
-    -- Settings button (gear) — open addon options
+    -- Settings button (gear) -- open addon options
     local settingsBtn = CreateFrame("Button", nil, titleBar)
     settingsBtn:SetSize(16, 16)
     settingsBtn:SetPoint("RIGHT", collapseBtn, "LEFT", -2, 0)
@@ -335,7 +340,7 @@ function TTQ:CreateTrackerFrame()
     end)
     self.FilterBtn = filterBtn
 
-    -- Abandon All button (skull icon) — hidden by default, controlled by setting
+    -- Abandon All button (skull icon) -- hidden by default, controlled by setting
     local abandonBtn = CreateFrame("Button", nil, titleBar)
     abandonBtn:SetSize(16, 16)
     abandonBtn:SetPoint("RIGHT", filterBtn, "LEFT", -2, 0)
@@ -540,7 +545,7 @@ function TTQ:UpdateAbandonButtonVisibility()
 end
 
 ----------------------------------------------------------------------
--- Abandon All Quests — confirmation dialog with typed confirmation
+-- Abandon All Quests -- confirmation dialog with typed confirmation
 ----------------------------------------------------------------------
 function TTQ:ShowAbandonAllConfirmation()
     -- Reuse existing dialog if already open
@@ -770,7 +775,7 @@ function TTQ:GetClassColor()
 end
 
 ----------------------------------------------------------------------
--- Backdrop styling — glassmorphic: rounded border, class gradient
+-- Backdrop styling -- glassmorphic: rounded border, class gradient
 ----------------------------------------------------------------------
 function TTQ:UpdateTrackerBackdrop()
     if not self.Tracker then return end
@@ -884,12 +889,13 @@ function TTQ:UpdateScrollFades()
 end
 
 ----------------------------------------------------------------------
--- Event registration — queued at file scope, registered in OnEnable
--- via AceEvent-3.0 (which uses its own clean XML-created frame).
+-- Event registration -- routes through QueueEvent (EventFrame.lua)
+-- which registers via EventRegistry BEFORE embeds.xml loads, so the
+-- execution context is untainted.  The debouncing is handled by
+-- ScheduleRefresh() (C_Timer-based coalescing in Utils.lua).
 ----------------------------------------------------------------------
 do
-    -- Quest-related events → schedule refresh
-    local questEvents = {
+    local trackerEvents = {
         "QUEST_LOG_UPDATE",
         "QUEST_WATCH_LIST_CHANGED",
         "QUEST_ACCEPTED",
@@ -905,16 +911,7 @@ do
         "TRACKED_RECIPE_UPDATE",
         "BAG_UPDATE_DELAYED",
         "TRADE_SKILL_LIST_UPDATE",
-    }
-    local function OnQuestEvent()
-        TTQ:ScheduleRefresh()
-    end
-    for _, ev in ipairs(questEvents) do
-        TTQ:QueueEvent(ev, OnQuestEvent)
-    end
-
-    -- Scenario / dungeon events → schedule refresh
-    local scenarioEvents = {
+        -- Scenario / dungeon events
         "SCENARIO_UPDATE",
         "SCENARIO_CRITERIA_UPDATE",
         "SCENARIO_COMPLETED",
@@ -923,26 +920,51 @@ do
         "BOSS_KILL",
         "UPDATE_INSTANCE_INFO",
     }
-    for _, ev in ipairs(scenarioEvents) do
+    local function OnQuestEvent(evt)
+        if evt == "PLAYER_ENTERING_WORLD" then
+            TTQ:HideBlizzardTracker()
+        end
+        TTQ:ScheduleRefresh()
+    end
+    for _, ev in ipairs(trackerEvents) do
         TTQ:QueueEvent(ev, OnQuestEvent)
     end
 
     -- Combat hiding (enter / leave combat)
     local function OnCombatEvent(evt)
-        if not TTQ.Tracker then return end
-        if not TTQ.GetSetting then return end
-        if not TTQ:GetSetting("hideInCombat") then return end
-        -- Never hide the tracker during an active M+ run — the timer
-        -- is critical information that must always be visible.
-        if TTQ.IsMythicPlusActive and TTQ:IsMythicPlusActive() then return end
-        if evt == "PLAYER_REGEN_DISABLED" then
-            TTQ.Tracker:Hide()
-        elseif evt == "PLAYER_REGEN_ENABLED" then
-            TTQ.Tracker:Show()
-        end
+        TTQ:OnCombatEvent(evt)
     end
     TTQ:QueueEvent("PLAYER_REGEN_DISABLED", OnCombatEvent)
     TTQ:QueueEvent("PLAYER_REGEN_ENABLED", OnCombatEvent)
+end
+
+-- Stub so InitTracker's conditional call is harmless
+function TTQ:RegisterTrackerEvents()
+    -- Already registered at file scope above via QueueEvent
+end
+
+-- Combat visibility handler
+function TTQ:OnCombatEvent(evt)
+    if evt == "PLAYER_REGEN_ENABLED" then
+        -- Process any deferred refresh from _DeferRefreshAfterCombat
+        if self._refreshPendingCombat then
+            self._refreshPendingCombat = nil
+            self:SafeRefreshTracker()
+        end
+
+        self:HideBlizzardTracker()
+    end
+
+    if not self.Tracker then return end
+    if not self:GetSetting("hideInCombat") then return end
+    -- Never hide the tracker during an active M+ run -- the timer
+    -- is critical information that must always be visible.
+    if self.IsMythicPlusActive and self:IsMythicPlusActive() then return end
+    if evt == "PLAYER_REGEN_DISABLED" then
+        self.Tracker:Hide()
+    elseif evt == "PLAYER_REGEN_ENABLED" then
+        self.Tracker:Show()
+    end
 end
 
 ----------------------------------------------------------------------
@@ -1110,7 +1132,7 @@ function TTQ:RefreshTracker()
         self:HideMythicPlusDisplay()
     end
 
-    -- === Scenario / Dungeon Block (skipped during M+ — already shown above) ===
+    -- === Scenario / Dungeon Block (skipped during M+ -- already shown above) ===
     local scenarioInfo = not isMythicPlus and self:GetScenarioInfo() or nil
     if scenarioInfo and #scenarioInfo.stages > 0 then
         local gc = AcquireGroupContainer(self.Content)
@@ -1439,24 +1461,6 @@ end
 function TTQ:HideBlizzardTracker()
     if not ObjectiveTrackerFrame then return end
 
-    -- Create a dedicated untainted frame to handle the hiding
-    if not self._blizzHiderFrame then
-        self._blizzHiderFrame = CreateFrame("Frame")
-        -- Wait until out of combat to manipulate the secure frame
-        self._blizzHiderFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-        self._blizzHiderFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-        self._blizzHiderFrame:SetScript("OnEvent", function()
-            if InCombatLockdown() then return end
-            if ObjectiveTrackerFrame then
-                ObjectiveTrackerFrame:SetAlpha(0)
-                ObjectiveTrackerFrame:SetScale(0.001)
-                -- Move it off-screen
-                ObjectiveTrackerFrame:ClearAllPoints()
-                ObjectiveTrackerFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMRIGHT", 10000, -10000)
-            end
-        end)
-    end
-
     -- Immediately apply if not in combat
     if not InCombatLockdown() then
         ObjectiveTrackerFrame:SetAlpha(0)
@@ -1467,7 +1471,7 @@ function TTQ:HideBlizzardTracker()
 end
 
 ----------------------------------------------------------------------
--- Elegant filter dropdown — cinematic dark theme, cursor-anchored,
+-- Elegant filter dropdown -- cinematic dark theme, cursor-anchored,
 -- atlas icons per quest type, pill toggles, Show/Hide All actions.
 ----------------------------------------------------------------------
 local FILTER_DD = {
@@ -1777,7 +1781,7 @@ function TTQ:CreateFilterDropdownFrame()
     secTypes:SetText("CATEGORIES")
     y = y - 16
 
-    -- Filter items list — order matches Config.lua priority
+    -- Filter items list -- order matches Config.lua priority
     local filterItems = {
         { setting = "showCampaign",    label = "Campaign",       icon = "campaign" },
         { setting = "showImportant",   label = "Important",      icon = "important" },

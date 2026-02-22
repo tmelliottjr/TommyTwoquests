@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------
--- TommyTwoquests — ContextMenu.lua
+-- TommyTwoquests -- ContextMenu.lua
 -- Generic reusable context menu: backdrop, buttons, cursor positioning
 ----------------------------------------------------------------------
 local AddonName, TTQ                     = ...

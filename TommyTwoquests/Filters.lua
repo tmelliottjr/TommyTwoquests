@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------
--- TommyTwoquests — Filters.lua
+-- TommyTwoquests -- Filters.lua
 -- Filter engine: by type, zone, frequency
 ----------------------------------------------------------------------
 local AddonName, TTQ = ...
@@ -83,7 +83,7 @@ function TTQ:FilterAndGroupQuests(quests)
 
     -- Group by type using a lookup table (avoids relying on sort contiguity)
     local groups = {}
-    local groupByType = {} -- questType → group table
+    local groupByType = {} -- questType -> group table
     local groupOrder = {}  -- ordered list of quest types as encountered
 
     -- Helper: add a quest to its type group, creating the group if needed

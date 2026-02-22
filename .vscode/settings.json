@@ -32,6 +32,20 @@
     "LFGListUtil_FindQuestGroup",
     "UISpecialFrames",
     "ChallengesKeystoneFrame",
-    "NUM_BAG_SLOTS"
+    "NUM_BAG_SLOTS",
+    "SELECTED_CHAT_FRAME",
+    "DEFAULT_CHAT_FRAME",
+    "ACCEPT",
+    "CANCEL",
+    "hash_SlashCmdList",
+    "NORMAL_FONT_COLOR_CODE",
+    "FONT_COLOR_CODE_CLOSE",
+    "CLOSE",
+    "SetDesaturation",
+    "ColorPickerFrame",
+    "ChatEdit_InsertLink",
+    "OKAY",
+    "ChatFrameUtil",
+    "NOT_BOUND"
   ]
 }

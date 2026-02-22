@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------
--- TommyTwoquests — DevMode.lua
+-- TommyTwoquests -- DevMode.lua
 -- Dev/testing module for rapid M+ UI iteration without running dungeons.
 --
 -- Intercepts IsMythicPlusActive() and GetMythicPlusData() to feed
@@ -7,7 +7,7 @@
 -- on the M+ tracker UI in seconds with /reload instead of running
 -- actual keystones.
 --
--- Usage:  /ttdev   — opens the dev panel
+-- Usage:  /ttdev   -- opens the dev panel
 ----------------------------------------------------------------------
 local AddonName, TTQ = ...
 local CreateFrame, UIParent, C_Timer, GetTime =
@@ -970,9 +970,9 @@ end
 
 ----------------------------------------------------------------------
 -- Slash command: /ttdev  (opens panel)
+-- Registered via AceConsole from the main addon object.
 ----------------------------------------------------------------------
-SLASH_TTDEV1 = "/ttdev"
-SlashCmdList["TTDEV"] = function(msg)
+function TTQ:DevModeSlashCommand(msg)
   msg = strtrim(msg or ""):lower()
   if msg == "stop" then
     DoStop()
@@ -983,3 +983,6 @@ SlashCmdList["TTDEV"] = function(msg)
     ToggleDevPanel()
   end
 end
+
+-- Register the slash command (AceConsole mixin on TTQ)
+TTQ:RegisterChatCommand("ttdev", "DevModeSlashCommand")
