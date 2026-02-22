@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.6.1 - February 22, 2026
+
+**Bug Fixes**
+
+- Fixed world quests from events and prepatch content not appearing in the tracker
+- Zone-based world quests (e.g. timewalking, seasonal events) now show up correctly when filtering by current zone
+
+
 ## v1.6.0 - February 21, 2026
 
 - Migrate to AceAddon-3.0, AceEvent-3.0, and AceTimer-3.0 for more robust event handling and timer management

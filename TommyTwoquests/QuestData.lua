@@ -171,20 +171,23 @@ function TTQ:GetTrackedQuests()
 
     for i = 1, numEntries do
         local info = C_QuestLog.GetInfo(i)
-        -- Allow hidden entries through if they are task quests (world quests /
-        -- bonus objectives that activate when the player enters the area).
-        -- Normal hidden quests are still skipped.
-        if info and not info.isHeader and (not info.isHidden or info.isTask) then
+        if info and not info.isHeader then
             local questID = info.questID
             local isOnMap = true -- default
 
-            -- Only include tracked or focused quests
+            -- Determine tracking and world-quest status early so the
+            -- hidden-entry filter below can use them.
             local isTracked = C_QuestLog.GetQuestWatchType(questID) ~= nil
             local isSuperTracked = C_SuperTrack.GetSuperTrackedQuestID() == questID
             local isTask = info.isTask -- world quests / bonus objectives
             local isBounty = info.isBounty
+            local isWorldQuest = C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(questID)
 
-            if isTracked or isSuperTracked or isTask or isBounty then
+            -- Include quests that are tracked, focused, task-type, bounty,
+            -- or world quests.  Hidden quests are allowed through when they
+            -- meet any of these criteria (covers event / prepatch quests
+            -- with unusual isHidden flags).
+            if isTracked or isSuperTracked or isTask or isBounty or isWorldQuest then
                 local objectives = C_QuestLog.GetQuestObjectives(questID)
                 local questType = ClassifyQuest(questID, info)
                 local pct, fulfilled, required = self:CalcProgress(objectives)
@@ -242,6 +245,77 @@ function TTQ:GetTrackedQuests()
         end
     end
 
+    -- Secondary pass: discover active world / task quests in the current
+    -- zone that may be missing from the quest-log iteration above.
+    -- This catches event-zone world quests with unusual quest flags
+    -- (e.g. prepatch / timewalking event quests).
+    local currentMapID = C_Map.GetBestMapForUnit("player")
+    if currentMapID and C_TaskQuest and C_TaskQuest.GetQuestsForPlayerByMapID then
+        local seenQuestIDs = {}
+        for _, q in ipairs(quests) do
+            seenQuestIDs[q.questID] = true
+        end
+
+        local taskQuests = C_TaskQuest.GetQuestsForPlayerByMapID(currentMapID)
+        if taskQuests then
+            for _, tq in ipairs(taskQuests) do
+                local tqID = tq.questId
+                if tqID and not seenQuestIDs[tqID] and tq.inProgress then
+                    local objectives = C_QuestLog.GetQuestObjectives(tqID)
+                    local questType = "worldquest"
+
+                    -- Refine type classification
+                    local isWQ = C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(tqID)
+                    if isWQ then
+                        local tagInfo = C_QuestLog.GetQuestTagInfo(tqID)
+                        if tagInfo and (tagInfo.tagID == 41 or tagInfo.tagID == 255) then
+                            questType = "pvpworldquest"
+                        end
+                    end
+
+                    -- Try to get quest title from task quest API, then quest log
+                    local title = "World Quest"
+                    if C_TaskQuest.GetQuestInfoByQuestID then
+                        title = C_TaskQuest.GetQuestInfoByQuestID(tqID) or title
+                    end
+                    if C_QuestLog.GetTitleForQuestID then
+                        title = C_QuestLog.GetTitleForQuestID(tqID) or title
+                    end
+
+                    local pct, fulfilled, required = self:CalcProgress(objectives)
+                    local isComplete = C_QuestLog.IsComplete(tqID) and true or false
+                    local logIndex = C_QuestLog.GetLogIndexForQuestID
+                        and C_QuestLog.GetLogIndexForQuestID(tqID) or 0
+
+                    table.insert(quests, {
+                        questID               = tqID,
+                        title                 = title,
+                        level                 = 0,
+                        difficultyLevel       = 0,
+                        questType             = questType,
+                        frequency             = 0,
+                        isComplete            = isComplete,
+                        isSuperTracked        = C_SuperTrack.GetSuperTrackedQuestID() == tqID,
+                        isTask                = true,
+                        isBounty              = false,
+                        objectives            = objectives or {},
+                        progress              = pct,
+                        fulfilled             = fulfilled,
+                        required              = required,
+                        questLogIndex         = logIndex,
+                        campaignID            = nil,
+                        questDescription      = nil,
+                        hasQuestItem          = false,
+                        questItemLink         = nil,
+                        questItemTexture      = nil,
+                        isGroupFinderEligible = false,
+                    })
+                    seenQuestIDs[tqID] = true
+                end
+            end
+        end
+    end
+
     return quests
 end
 
@@ -279,12 +353,29 @@ function TTQ:GetQuestsForCurrentZone()
     local mapID = self:GetCurrentZoneMapID()
     if not mapID then return {} end
 
-    local questsOnMap = C_QuestLog.GetQuestsOnMap(mapID)
-    if not questsOnMap then return {} end
-
     local zoneQuestIDs = {}
-    for _, quest in ipairs(questsOnMap) do
-        zoneQuestIDs[quest.questID] = true
+
+    -- Regular quests associated with this map
+    local questsOnMap = C_QuestLog.GetQuestsOnMap(mapID)
+    if questsOnMap then
+        for _, quest in ipairs(questsOnMap) do
+            zoneQuestIDs[quest.questID] = true
+        end
     end
+
+    -- Task quests (world quests / bonus objectives) on this map —
+    -- ensures event-zone and prepatch world quests are included in
+    -- zone filtering and zone-group headers.
+    if C_TaskQuest and C_TaskQuest.GetQuestsForPlayerByMapID then
+        local taskQuests = C_TaskQuest.GetQuestsForPlayerByMapID(mapID)
+        if taskQuests then
+            for _, tq in ipairs(taskQuests) do
+                if tq.questId then
+                    zoneQuestIDs[tq.questId] = true
+                end
+            end
+        end
+    end
+
     return zoneQuestIDs
 end
