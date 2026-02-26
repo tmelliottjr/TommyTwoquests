@@ -65,6 +65,7 @@ TTQ.QuestIcons = {
     -- World quests: red ! in circle; PvP world = crossed swords
     worldquest    = "worldquest-tracker-questmarker",
     pvpworldquest = "questlog-questtypeicon-pvp",
+    bonusobjective = "QuestBonusObjective",
     calling       = "quest-recurring-available",
     daily         = "quest-recurring-available",
     weekly        = "quest-recurring-available",
@@ -88,6 +89,7 @@ TTQ.QuestIconsTurnin = {
     legendary     = "quest-legendary-turnin",
     worldquest    = "worldquest-tracker-questmarker",
     pvpworldquest = "questlog-questtypeicon-pvp",
+    bonusobjective = "QuestBonusObjective",
     calling       = "quest-recurring-turnin",
     daily         = "quest-recurring-turnin",
     weekly        = "quest-recurring-turnin",
@@ -138,6 +140,7 @@ TTQ.QuestTypeNames = {
     legendary     = "Legendary",
     worldquest    = "World Quests",
     pvpworldquest = "PvP World Quests",
+    bonusobjective = "Bonus Objectives",
     calling       = "Callings",
     daily         = "Daily",
     weekly        = "Weekly",
@@ -160,15 +163,16 @@ TTQ.QuestTypePriority = {
     calling       = 4,
     worldquest    = 5,
     pvpworldquest = 5,
-    daily         = 6,
-    weekly        = 7,
-    dungeon       = 8,
-    raid          = 9,
-    group         = 10,
-    pvp           = 11,
-    account       = 12,
-    meta          = 13,
-    normal        = 14,
+    bonusobjective = 6,
+    daily         = 7,
+    weekly        = 8,
+    dungeon       = 9,
+    raid          = 10,
+    group         = 11,
+    pvp           = 12,
+    account       = 13,
+    meta          = 14,
+    normal        = 15,
 }
 
 ----------------------------------------------------------------------
@@ -206,14 +210,47 @@ function TTQ:CalcProgress(objectives)
     local fulfilled, required = 0, 0
     for _, obj in ipairs(objectives) do
         if obj.finished then
-            fulfilled = fulfilled + (obj.numRequired or 1)
-            required = required + (obj.numRequired or 1)
+            local objRequired = tonumber(obj.numRequired)
+            if objRequired and objRequired > 0 then
+                fulfilled = fulfilled + objRequired
+                required = required + objRequired
+            else
+                fulfilled = fulfilled + 1
+                required = required + 1
+            end
         else
-            fulfilled = fulfilled + (obj.numFulfilled or 0)
-            required = required + (obj.numRequired or 1)
+            local objFulfilled = tonumber(obj.numFulfilled)
+            local objRequired = tonumber(obj.numRequired)
+
+            if objRequired and objRequired > 0 then
+                fulfilled = fulfilled + (objFulfilled or 0)
+                required = required + objRequired
+            else
+                local text = obj.text or ""
+                local pctText = text ~= "" and string.match(text, "(%d+)%s*%%") or nil
+                if pctText then
+                    local pctValue = tonumber(pctText) or 0
+                    if pctValue < 0 then pctValue = 0 end
+                    if pctValue > 100 then pctValue = 100 end
+                    fulfilled = fulfilled + pctValue
+                    required = required + 100
+                else
+                    local numText, denomText = string.match(text, "(%d+)%s*/%s*(%d+)")
+                    local parsedNum = numText and tonumber(numText) or nil
+                    local parsedDenom = denomText and tonumber(denomText) or nil
+                    if parsedNum and parsedDenom and parsedDenom > 0 then
+                        fulfilled = fulfilled + parsedNum
+                        required = required + parsedDenom
+                    else
+                        required = required + 1
+                    end
+                end
+            end
         end
     end
     local pct = required > 0 and (fulfilled / required) or 0
+    if pct < 0 then pct = 0 end
+    if pct > 1 then pct = 1 end
     return pct, fulfilled, required
 end
 

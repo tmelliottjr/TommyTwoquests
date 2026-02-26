@@ -123,8 +123,8 @@ local function ClassifyQuest(questID, info)
             end
             -- Questline: significant story quests, treat as important
             if qc == Enum.QuestClassification.Questline then return "important" end
-            -- BonusObjective: treat as world quest / task
-            if qc == Enum.QuestClassification.BonusObjective then return "worldquest" end
+            -- BonusObjective: keep as a dedicated tracker type
+            if qc == Enum.QuestClassification.BonusObjective then return "bonusobjective" end
             -- Threat: e.g. N'Zoth assaults, treat as world quest
             if qc == Enum.QuestClassification.Threat then return "worldquest" end
             -- WorldQuest classification (redundant with IsWorldQuest check above but safe)
@@ -167,6 +167,11 @@ local function ClassifyQuest(questID, info)
         elseif info.frequency == Enum.QuestFrequency.Weekly then
             return "weekly"
         end
+    end
+
+    -- Non-world task quests are generally bonus objectives.
+    if info.isTask then
+        return "bonusobjective"
     end
 
     return "normal"
@@ -228,7 +233,9 @@ function TTQ:GetTrackedQuests()
         local isBounty = info.isBounty and true or false
         local isWorldQuest = C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(questID) and true or false
         local isCompleteBounty = isBounty and C_QuestLog.IsComplete(questID) and true or false
-        local isExplicitTaskType = isWorldQuest or isCompleteBounty
+        local questType = ClassifyQuest(questID, info)
+        local isBonusObjective = isTask and questType == "bonusobjective"
+        local isExplicitTaskType = isWorldQuest or isCompleteBounty or isBonusObjective
 
         -- Authoritative inclusion policy:
         -- 1) tracked/supertracked quests from the watch list,
@@ -245,7 +252,6 @@ function TTQ:GetTrackedQuests()
         end
 
         local objectives = C_QuestLog.GetQuestObjectives(questID)
-        local questType = ClassifyQuest(questID, info)
         local pct, fulfilled, required = self:CalcProgress(objectives)
         local isComplete = C_QuestLog.IsComplete(questID) and true or false
         local isAutoComplete = false
@@ -324,7 +330,9 @@ function TTQ:GetTrackedQuests()
         if info and not info.isHeader and IsValidQuestID(info.questID) and not addedQuestIDs[info.questID] then
             local isWorldQuest = C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(info.questID)
             local isCompleteBounty = info.isBounty and C_QuestLog.IsComplete(info.questID)
-            if isWorldQuest or isCompleteBounty then
+            local classifiedType = info.isTask and ClassifyQuest(info.questID, info) or nil
+            local isBonusObjective = classifiedType == "bonusobjective"
+            if isWorldQuest or isCompleteBounty or isBonusObjective then
                 TryAddQuest(info.questID, i, "world_or_bounty")
             end
         end
@@ -344,7 +352,7 @@ function TTQ:GetTrackedQuests()
         local taskQuests = C_TaskQuest.GetQuestsForPlayerByMapID(currentMapID)
         if taskQuests then
             for _, tq in ipairs(taskQuests) do
-                local tqID = tq.questId
+                local tqID = tq.questID or (rawget(tq, "questId"))
                 local isWorldQuest = tqID and C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(tqID)
                 local logIndex = tqID and C_QuestLog.GetLogIndexForQuestID
                     and C_QuestLog.GetLogIndexForQuestID(tqID) or 0
@@ -469,7 +477,7 @@ function TTQ:GetQuestsForCurrentZone()
         local taskQuests = C_TaskQuest.GetQuestsForPlayerByMapID(mapID)
         if taskQuests then
             for _, tq in ipairs(taskQuests) do
-                local tqID = tq.questId
+                local tqID = tq.questID or (rawget(tq, "questId"))
                 if tqID and IsEligibleTaskQuest(tqID, tq.inProgress) then
                     zoneQuestIDs[tqID] = true
                 end

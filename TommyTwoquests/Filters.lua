@@ -14,6 +14,7 @@ local TYPE_FILTER_MAP = {
     legendary     = "showLegendary",
     worldquest    = "showWorldQuests",
     pvpworldquest = "showWorldQuests",
+    bonusobjective = "showWorldQuests",
     calling       = "showCallings",
     daily         = "showDailies",
     weekly        = "showWeeklies",

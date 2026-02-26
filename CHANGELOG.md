@@ -1,7 +1,12 @@
 # Changelog
 
+## v2.0.3
+
+- Fix quest tracking progress
+- Fix bonus objectives
+
 ## v2.0.1 - February 22, 2026
-**Ace Migration**
+
 - Migrated to Ace
 
 ## v1.6.1 - February 22, 2026
@@ -10,7 +15,6 @@
 
 - Fixed world quests from events and prepatch content not appearing in the tracker
 - Zone-based world quests (e.g. timewalking, seasonal events) now show up correctly when filtering by current zone
-
 
 ## v1.6.0 - February 21, 2026
 

@@ -9,6 +9,91 @@
 local _, TTQ = ...
 local C_Map, C_QuestLog, C_SuperTrack, InCombatLockdown, GetTime = C_Map, C_QuestLog, C_SuperTrack, InCombatLockdown,
     GetTime
+local C_TaskQuest = C_TaskQuest
+
+local function BuildTrackedQuestIDList()
+  local questIDs = {}
+  local seen = {}
+
+  if C_QuestLog and C_QuestLog.GetNumQuestWatches and C_QuestLog.GetQuestIDForQuestWatchIndex then
+    local numWatches = C_QuestLog.GetNumQuestWatches() or 0
+    for i = 1, numWatches do
+      local qid = C_QuestLog.GetQuestIDForQuestWatchIndex(i)
+      if type(qid) == "number" and qid > 0 and not seen[qid] then
+        seen[qid] = true
+        questIDs[#questIDs + 1] = qid
+      end
+    end
+  end
+
+  local superTrackedQuestID = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID() or 0
+  if type(superTrackedQuestID) == "number" and superTrackedQuestID > 0 and not seen[superTrackedQuestID] then
+    seen[superTrackedQuestID] = true
+    questIDs[#questIDs + 1] = superTrackedQuestID
+  end
+
+  if C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetInfo then
+    local numEntries = C_QuestLog.GetNumQuestLogEntries() or 0
+    for i = 1, numEntries do
+      local info = C_QuestLog.GetInfo(i)
+      if info and not info.isHeader and type(info.questID) == "number" and info.questID > 0 then
+        local isWorldQuest = C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(info.questID)
+        local isCompleteBounty = info.isBounty and C_QuestLog.IsComplete and C_QuestLog.IsComplete(info.questID)
+        if (isWorldQuest or isCompleteBounty or info.isTask) and not seen[info.questID] then
+          seen[info.questID] = true
+          questIDs[#questIDs + 1] = info.questID
+        end
+      end
+    end
+  end
+
+  local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player") or nil
+  if mapID and C_TaskQuest and C_TaskQuest.GetQuestsForPlayerByMapID then
+    local taskQuests = C_TaskQuest.GetQuestsForPlayerByMapID(mapID)
+    if taskQuests then
+      for _, tq in ipairs(taskQuests) do
+        local qid = tq and (tq.questID or (rawget(tq, "questId")))
+        if type(qid) == "number" and qid > 0 and tq.inProgress and not seen[qid] then
+          seen[qid] = true
+          questIDs[#questIDs + 1] = qid
+        end
+      end
+    end
+  end
+
+  table.sort(questIDs)
+  return questIDs
+end
+
+local function BuildObjectiveProgressSignature()
+  if not C_QuestLog or not C_QuestLog.GetQuestObjectives then
+    return ""
+  end
+
+  local signature = ""
+  local trackedQuestIDs = BuildTrackedQuestIDList()
+  for _, questID in ipairs(trackedQuestIDs) do
+    local isComplete = C_QuestLog.IsComplete and C_QuestLog.IsComplete(questID) and 1 or 0
+    signature = signature .. "|" .. questID .. ":" .. isComplete
+
+    local objectives = C_QuestLog.GetQuestObjectives(questID)
+    if objectives and #objectives > 0 then
+      for i = 1, #objectives do
+        local obj = objectives[i]
+        if obj then
+          local finished = obj.finished and 1 or 0
+          local fulfilled = obj.numFulfilled or 0
+          local required = obj.numRequired or 0
+          signature = signature .. ";" .. i .. "," .. finished .. "," .. fulfilled .. "," .. required
+        end
+      end
+    else
+      signature = signature .. ";none"
+    end
+  end
+
+  return signature
+end
 
 do
   local eventCallbacks = {}
@@ -28,6 +113,7 @@ do
   local lastQuestEntryCount = -1
   local lastWatchSig = ""
   local lastSuperTrackedQuestID = -1
+  local lastObjectiveProgressSig = ""
 
   local function BuildWatchSignature()
     if not C_QuestLog or not C_QuestLog.GetNumQuestWatches or not C_QuestLog.GetQuestIDForQuestWatchIndex then
@@ -81,10 +167,12 @@ do
     local watchSig = BuildWatchSignature()
     local superTrackedQuestID = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and
     C_SuperTrack.GetSuperTrackedQuestID() or 0
+    local objectiveProgressSig = BuildObjectiveProgressSignature()
 
     local questChanged = (questEntryCount ~= lastQuestEntryCount)
     local watchesChanged = (watchSig ~= lastWatchSig)
     local superChanged = (superTrackedQuestID ~= lastSuperTrackedQuestID)
+    local objectivesChanged = (objectiveProgressSig ~= lastObjectiveProgressSig)
 
     if watchesChanged then
       Dispatch("QUEST_WATCH_LIST_CHANGED")
@@ -92,13 +180,14 @@ do
     if superChanged then
       Dispatch("SUPER_TRACKING_CHANGED")
     end
-    if questChanged or watchesChanged or superChanged then
+    if questChanged or watchesChanged or superChanged or objectivesChanged then
       Dispatch("QUEST_LOG_UPDATE")
     end
 
     lastQuestEntryCount = questEntryCount
     lastWatchSig = watchSig
     lastSuperTrackedQuestID = superTrackedQuestID
+    lastObjectiveProgressSig = objectiveProgressSig
 
     -- Combat transition emulation
     local inCombat = InCombatLockdown and InCombatLockdown() or false

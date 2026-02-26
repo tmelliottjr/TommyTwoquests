@@ -441,8 +441,16 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
             item.focusIcon:SetDesaturated(false)
             item.focusIcon:SetVertexColor(1, 1, 1)
             item.focusIcon:SetAlpha(1)
-        elseif quest.questType == "worldquest" or quest.questType == "pvpworldquest" then
-            pcall(item.focusIcon.SetAtlas, item.focusIcon, "worldquest-icon", false)
+        elseif quest.questType == "worldquest" or quest.questType == "pvpworldquest"
+            or quest.questType == "bonusobjective" then
+            local markerAtlas = "worldquest-icon"
+            if quest.questType == "bonusobjective" then
+                markerAtlas = "QuestBonusObjective"
+                if not (C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(markerAtlas)) then
+                    markerAtlas = "worldquest-icon"
+                end
+            end
+            pcall(item.focusIcon.SetAtlas, item.focusIcon, markerAtlas, false)
             item.focusIcon:SetSize(12, 12)
             item.focusIcon:ClearAllPoints()
             item.focusIcon:SetPoint("TOPLEFT", item.frame, "TOPLEFT", -2, -4)
