@@ -1498,7 +1498,8 @@ end
 
 ----------------------------------------------------------------------
 -- Hide/disable Blizzard's ObjectiveTrackerFrame
--- Uses non-tainting approach: alpha/scale tricks + hook to prevent Show
+-- Uses a minimal-touch suppression strategy to reduce taint propagation
+-- into Blizzard's layout-managed frame trees.
 ----------------------------------------------------------------------
 function TTQ:HideBlizzardTracker()
     if not ObjectiveTrackerFrame then return end
@@ -1506,9 +1507,15 @@ function TTQ:HideBlizzardTracker()
     -- Immediately apply if not in combat
     if not InCombatLockdown() then
         ObjectiveTrackerFrame:SetAlpha(0)
-        ObjectiveTrackerFrame:SetScale(0.001)
-        ObjectiveTrackerFrame:ClearAllPoints()
-        ObjectiveTrackerFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMRIGHT", 10000, -10000)
+        ObjectiveTrackerFrame:EnableMouse(false)
+
+        if not self._objectiveTrackerSuppressHooked then
+            self._objectiveTrackerSuppressHooked = true
+            hooksecurefunc(ObjectiveTrackerFrame, "Show", function(frame)
+                frame:SetAlpha(0)
+                frame:EnableMouse(false)
+            end)
+        end
     end
 end
 

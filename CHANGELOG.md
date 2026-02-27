@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.0.6
+- Fix auto-unwatched campaign/important/legendary/calling quests not appearing in the tracker (e.g. "Culling the Light")
+- Fix task quests being misclassified by campaign metadata; non-world task quests now classify as Bonus Objectives
+- Relax task-map eligibility so valid task quests are not hidden when `inProgress` is missing/false
+- Disable map-opening actions for Bonus Objectives (row click, objective click, and context menu)
+
 ## v2.0.5
 
 - Add sleek objective progress bars for percentage-based quest objectives (world quests, bonus objectives, and any quest objective that reports percent progress)

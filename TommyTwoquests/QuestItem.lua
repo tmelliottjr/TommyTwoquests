@@ -276,6 +276,7 @@ function TTQ:CreateQuestItem(parent)
         local questData = item.questData
         if not questData then return end
         local questID = questData.questID
+        local canOpenMap = questData.questType ~= "bonusobjective"
 
         if button == "LeftButton" then
             if IsShiftKeyDown() then
@@ -293,7 +294,7 @@ function TTQ:CreateQuestItem(parent)
 
                 -- Click: focus the quest and open it on the map
                 C_SuperTrack.SetSuperTrackedQuestID(questID)
-                if QuestMapFrame_OpenToQuestDetails then
+                if canOpenMap and QuestMapFrame_OpenToQuestDetails then
                     QuestMapFrame_OpenToQuestDetails(questID)
                 end
                 TTQ:SafeRefreshTracker()
@@ -362,6 +363,8 @@ function TTQ:CreateQuestItem(parent)
             GameTooltip:AddLine(" ")
             if questData.isAutoComplete and questData.isComplete then
                 GameTooltip:AddLine("Click: Complete quest", 0.5, 0.8, 1)
+            elseif questData.questType == "bonusobjective" then
+                GameTooltip:AddLine("Click: Focus quest", 0.5, 0.8, 1)
             else
                 GameTooltip:AddLine("Click: Focus & show on map", 0.5, 0.8, 1)
             end
@@ -766,6 +769,7 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
         for _, obj in ipairs(quest.objectives) do
             local objItem = self:AcquireObjectiveItem(item.frame)
             objItem.questID = questID -- store questID for click-to-map
+            objItem.canOpenMap = quest.questType ~= "bonusobjective"
             objItem.frame:SetWidth(parentWidth - FOCUS_ICON_WIDTH - 2)
             self:UpdateObjectiveItem(objItem, obj, showNums)
             table.insert(item.objectiveItems, objItem)
@@ -776,6 +780,7 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
         if descText and descText ~= "" then
             local objItem = self:AcquireObjectiveItem(item.frame)
             objItem.questID = questID
+            objItem.canOpenMap = quest.questType ~= "bonusobjective"
             objItem.frame:SetWidth(parentWidth - FOCUS_ICON_WIDTH - 2)
             -- Truncate long descriptions and show as italic hint
             local truncated = self:Truncate(descText, 80)
@@ -835,6 +840,7 @@ function TTQ:ShowQuestContextMenu(item)
     local isWorldQuestTask = quest.isTask
     local isWorldQuest = quest.questType == "worldquest" or quest.questType == "pvpworldquest"
     local isTask = quest.isTask
+    local mapDisabled = quest.questType == "bonusobjective"
 
     local shareDisabled = not (C_QuestLog and C_QuestLog.IsPushableQuest
         and C_QuestLog.IsPushableQuest(questID) and IsInGroup())
@@ -869,8 +875,12 @@ function TTQ:ShowQuestContextMenu(item)
             },
             {
                 label = "Show on Map",
-                tooltip = "Open the world map with this quest highlighted.",
+                tooltip = mapDisabled
+                    and "Bonus objectives do not have a regular quest-log/map entry."
+                    or "Open the world map with this quest highlighted.",
+                disabled = mapDisabled,
                 onClick = function()
+                    if mapDisabled then return end
                     if QuestMapFrame_OpenToQuestDetails then
                         QuestMapFrame_OpenToQuestDetails(questID)
                     end

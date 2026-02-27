@@ -105,6 +105,13 @@ local function ClassifyQuest(questID, info)
         return "worldquest"
     end
 
+    -- Non-world task quests should be treated as bonus objectives.
+    -- Some clients can still report Campaign/Important classification
+    -- for task quests, but tracker behavior should match objective style.
+    if info.isTask then
+        return "bonusobjective"
+    end
+
     -- Modern classification API (Retail 10.x+)
     if C_QuestInfoSystem and C_QuestInfoSystem.GetQuestClassification then
         local qc = C_QuestInfoSystem.GetQuestClassification(questID)
@@ -183,7 +190,7 @@ end
 -- while filtering out anonymous placeholder task records.
 ----------------------------------------------------------------------
 local function IsEligibleTaskQuest(questID, inProgress)
-    if not IsValidQuestID(questID) or not inProgress then
+    if not IsValidQuestID(questID) then
         return false
     end
 
@@ -198,6 +205,11 @@ local function IsEligibleTaskQuest(questID, inProgress)
         if logIndex and logIndex > 0 then
             return true
         end
+    end
+
+    -- If task-map reports it as actively in progress, accept it.
+    if inProgress then
+        return true
     end
 
     -- Allow tagged/public/event-style tasks that expose quest tag metadata.
@@ -236,11 +248,18 @@ function TTQ:GetTrackedQuests()
         local questType = ClassifyQuest(questID, info)
         local isBonusObjective = isTask and questType == "bonusobjective"
         local isExplicitTaskType = isWorldQuest or isCompleteBounty or isBonusObjective
+        local isAutoIncludeStoryType =
+            questType == "campaign"
+            or questType == "important"
+            or questType == "legendary"
+            or questType == "calling"
 
         -- Authoritative inclusion policy:
         -- 1) tracked/supertracked quests from the watch list,
-        -- 2) explicit world/bounty quests (even if not watched).
-        if not (isTracked or isSuperTracked or isExplicitTaskType) then
+        -- 2) explicit world/bounty quests (even if not watched),
+        -- 3) key story quests (campaign/important/legendary/calling)
+        --    so auto-unwatched campaign quests still appear.
+        if not (isTracked or isSuperTracked or isExplicitTaskType or isAutoIncludeStoryType) then
             return
         end
 

@@ -6,7 +6,7 @@ local AddonName, TTQ = ...
 local table, string, math, pcall, CreateFrame = table, string, math, pcall, CreateFrame
 
 local ROW_HEIGHT = 16
-local ROW_HEIGHT_WITH_BAR = 26
+local ROW_HEIGHT_WITH_BAR = 30
 local PROGRESS_BAR_HEIGHT = 6
 local PROGRESS_BAR_MIN_WIDTH = 90
 local PROGRESS_BAR_TEXT_GAP = 3
@@ -62,6 +62,7 @@ local objectivePool = TTQ:CreateObjectPool(
     function(item)
         item.frame:SetAlpha(1)
         item.questID = nil -- clear stale questID to prevent wrong quest opening
+        item.canOpenMap = true
         if item.checkIcon then item.checkIcon:Hide() end
         if item.dash then item.dash:Show() end
         if item.progressBG then item.progressBG:Hide() end
@@ -101,7 +102,7 @@ function TTQ:CreateObjectiveItem(parent)
 
     -- Click: open quest in map/log
     frame:SetScript("OnClick", function()
-        if item.questID and QuestMapFrame_OpenToQuestDetails then
+        if item.canOpenMap ~= false and item.questID and QuestMapFrame_OpenToQuestDetails then
             QuestMapFrame_OpenToQuestDetails(item.questID)
         end
     end)
