@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.0.7
+- Fix a taint error ("attempt to perform arithmetic on a secret number value") that occurred when hovering over world quest POIs on the map
+
 ## v2.0.6
 - Fix auto-unwatched campaign/important/legendary/calling quests not appearing in the tracker (e.g. "Culling the Light")
 - Fix task quests being misclassified by campaign metadata; non-world task quests now classify as Bonus Objectives

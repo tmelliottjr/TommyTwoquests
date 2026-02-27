@@ -143,7 +143,7 @@ function TTQ:CreateRecipeItem(parent)
       TTQ:EndTooltip()
     end
   end)
-  frame:SetScript("OnLeave", function() TTQ:HideTooltip() end)
+  frame:SetScript("OnLeave", function(self) TTQ:HideTooltip(self) end)
 
   return item
 end
@@ -210,7 +210,7 @@ function TTQ:CreateReagentItem(parent)
       TTQ:EndTooltip()
     end
   end)
-  frame:SetScript("OnLeave", function() TTQ:HideTooltip() end)
+  frame:SetScript("OnLeave", function(self) TTQ:HideTooltip(self) end)
 
   return item
 end
@@ -804,7 +804,7 @@ function TTQ:RenderRecipeBlock(parentFrame, width, yOffset)
       TTQ:EndTooltip()
     end
   end)
-  hf:SetScript("OnLeave", function() TTQ:HideTooltip() end)
+  hf:SetScript("OnLeave", function(self) TTQ:HideTooltip(self) end)
 
   local totalHeight = SECTION_HEADER_HEIGHT + 2
 

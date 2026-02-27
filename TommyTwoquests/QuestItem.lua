@@ -375,7 +375,7 @@ function TTQ:CreateQuestItem(parent)
     end)
 
     frame:SetScript("OnLeave", function(self)
-        TTQ:HideTooltip()
+        TTQ:HideTooltip(self)
         -- Only clear hovered quest if the frame is still visible (not being released to pool)
         if self:IsVisible() then
             TTQ._hoveredQuestID = nil

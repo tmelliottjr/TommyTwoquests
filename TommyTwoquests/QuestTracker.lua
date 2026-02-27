@@ -1251,7 +1251,7 @@ function TTQ:RefreshTracker()
                 TTQ:EndTooltip()
             end
         end)
-        header.frame:SetScript("OnLeave", function() TTQ:HideTooltip() end)
+        header.frame:SetScript("OnLeave", function(self) TTQ:HideTooltip(self) end)
 
         table.insert(activeHeaders, header)
         local groupContentHeight = SECTION_HEADER_HEIGHT + 2
@@ -1397,7 +1397,7 @@ function TTQ:RefreshTracker()
                 TTQ:EndTooltip()
             end
         end)
-        header.frame:SetScript("OnLeave", function() TTQ:HideTooltip() end)
+        header.frame:SetScript("OnLeave", function(self) TTQ:HideTooltip(self) end)
 
         table.insert(activeHeaders, header)
         local groupContentHeight = SECTION_HEADER_HEIGHT + 2

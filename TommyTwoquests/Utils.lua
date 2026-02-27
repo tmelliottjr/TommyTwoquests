@@ -6,6 +6,7 @@ local AddonName, TTQ = ...
 local table, ipairs, pairs, string, type = table, ipairs, pairs, string, type
 local C_QuestLog, C_Timer, pcall = C_QuestLog, C_Timer, pcall
 local InCombatLockdown = InCombatLockdown
+local GameTooltip = GameTooltip
 
 ----------------------------------------------------------------------
 -- Font list: use LibSharedMedia-3.0 (same as most addons) when available
@@ -58,50 +59,50 @@ TTQ.FontOutlines = {
 -- Default/available state (e.g. not yet turned in, or generic)
 TTQ.QuestIcons = {
     -- Campaign: main story, shield/banner badge
-    campaign      = "quest-campaign-available",
+    campaign       = "quest-campaign-available",
     -- Important: purple chevron (available); active = yellow-gold chevron (tracked)
-    important     = "quest-important-available",
-    legendary     = "quest-legendary-available",
+    important      = "quest-important-available",
+    legendary      = "quest-legendary-available",
     -- World quests: red ! in circle; PvP world = crossed swords
-    worldquest    = "worldquest-tracker-questmarker",
-    pvpworldquest = "questlog-questtypeicon-pvp",
+    worldquest     = "worldquest-tracker-questmarker",
+    pvpworldquest  = "questlog-questtypeicon-pvp",
     bonusobjective = "QuestBonusObjective",
-    calling       = "quest-recurring-available",
-    daily         = "quest-recurring-available",
-    weekly        = "quest-recurring-available",
-    dungeon       = "Dungeon",
-    raid          = "Raid",
-    group         = "QuestRepeatableTurnin",
-    pvp           = "questlog-questtypeicon-pvp",
+    calling        = "quest-recurring-available",
+    daily          = "quest-recurring-available",
+    weekly         = "quest-recurring-available",
+    dungeon        = "Dungeon",
+    raid           = "Raid",
+    group          = "QuestRepeatableTurnin",
+    pvp            = "questlog-questtypeicon-pvp",
     -- Local stories / side quests: simple yellow !
-    normal        = "QuestNormal",
-    meta          = "quest-wrapper-available",
-    account       = "QuestSharing-QuestLog-Active",
+    normal         = "QuestNormal",
+    meta           = "quest-wrapper-available",
+    account        = "QuestSharing-QuestLog-Active",
     -- Public events (major / minor)
-    publicevent   = "quest-public-event",
-    worldboss     = "quest-worldboss-available",
+    publicevent    = "quest-public-event",
+    worldboss      = "quest-worldboss-available",
 }
 
 -- Turnin/active/complete variants (when quest is tracked or complete)
 TTQ.QuestIconsTurnin = {
-    campaign      = "quest-campaign-available", -- same style
-    important     = "quest-important-turnin",   -- Active Important (yellow-gold chevron)
-    legendary     = "quest-legendary-turnin",
-    worldquest    = "worldquest-tracker-questmarker",
-    pvpworldquest = "questlog-questtypeicon-pvp",
+    campaign       = "quest-campaign-available", -- same style
+    important      = "quest-important-turnin",  -- Active Important (yellow-gold chevron)
+    legendary      = "quest-legendary-turnin",
+    worldquest     = "worldquest-tracker-questmarker",
+    pvpworldquest  = "questlog-questtypeicon-pvp",
     bonusobjective = "QuestBonusObjective",
-    calling       = "quest-recurring-turnin",
-    daily         = "quest-recurring-turnin",
-    weekly        = "quest-recurring-turnin",
-    dungeon       = "Dungeon",
-    raid          = "Raid",
-    group         = "QuestRepeatableTurnin",
-    pvp           = "questlog-questtypeicon-pvp",
-    normal        = "QuestTurnin", -- complete/turnin local story
-    meta          = "quest-wrapper-turnin",
-    account       = "QuestSharing-QuestLog-Active",
-    publicevent   = "quest-public-event",
-    worldboss     = "quest-worldboss-turnin",
+    calling        = "quest-recurring-turnin",
+    daily          = "quest-recurring-turnin",
+    weekly         = "quest-recurring-turnin",
+    dungeon        = "Dungeon",
+    raid           = "Raid",
+    group          = "QuestRepeatableTurnin",
+    pvp            = "questlog-questtypeicon-pvp",
+    normal         = "QuestTurnin", -- complete/turnin local story
+    meta           = "quest-wrapper-turnin",
+    account        = "QuestSharing-QuestLog-Active",
+    publicevent    = "quest-public-event",
+    worldboss      = "quest-worldboss-turnin",
 }
 
 ----------------------------------------------------------------------
@@ -135,44 +136,44 @@ end
 -- Quest type display names
 ----------------------------------------------------------------------
 TTQ.QuestTypeNames = {
-    campaign      = "Campaign",
-    important     = "Important",
-    legendary     = "Legendary",
-    worldquest    = "World Quests",
-    pvpworldquest = "PvP World Quests",
+    campaign       = "Campaign",
+    important      = "Important",
+    legendary      = "Legendary",
+    worldquest     = "World Quests",
+    pvpworldquest  = "PvP World Quests",
     bonusobjective = "Bonus Objectives",
-    calling       = "Callings",
-    daily         = "Daily",
-    weekly        = "Weekly",
-    dungeon       = "Dungeon",
-    raid          = "Raid",
-    group         = "Group",
-    pvp           = "PvP",
-    normal        = "Side Quests",
-    meta          = "Meta Quests",
-    account       = "Account",
+    calling        = "Callings",
+    daily          = "Daily",
+    weekly         = "Weekly",
+    dungeon        = "Dungeon",
+    raid           = "Raid",
+    group          = "Group",
+    pvp            = "PvP",
+    normal         = "Side Quests",
+    meta           = "Meta Quests",
+    account        = "Account",
 }
 
 ----------------------------------------------------------------------
 -- Quest type sort priority (lower = higher on the list)
 ----------------------------------------------------------------------
 TTQ.QuestTypePriority = {
-    campaign      = 1,
-    important     = 2,
-    legendary     = 3,
-    calling       = 4,
-    worldquest    = 5,
-    pvpworldquest = 5,
+    campaign       = 1,
+    important      = 2,
+    legendary      = 3,
+    calling        = 4,
+    worldquest     = 5,
+    pvpworldquest  = 5,
     bonusobjective = 6,
-    daily         = 7,
-    weekly        = 8,
-    dungeon       = 9,
-    raid          = 10,
-    group         = 11,
-    pvp           = 12,
-    account       = 13,
-    meta          = 14,
-    normal        = 15,
+    daily          = 7,
+    weekly         = 8,
+    dungeon        = 9,
+    raid           = 10,
+    group          = 11,
+    pvp            = 12,
+    account        = 13,
+    meta           = 14,
+    normal         = 15,
 }
 
 ----------------------------------------------------------------------
@@ -308,7 +309,9 @@ end
 --   end
 ----------------------------------------------------------------------
 function TTQ:BeginTooltip(owner, anchor)
+    if not owner then return false end
     if not self:GetSetting("showTrackerTooltips") then return false end
+    self._activeTooltipOwner = owner
     GameTooltip:SetOwner(owner, anchor or "ANCHOR_LEFT")
     return true
 end
@@ -317,7 +320,15 @@ function TTQ:EndTooltip()
     GameTooltip:Show()
 end
 
-function TTQ:HideTooltip()
+function TTQ:HideTooltip(owner)
+    local tooltipOwner = GameTooltip:GetOwner()
+    if owner then
+        if tooltipOwner ~= owner then return end
+    elseif self._activeTooltipOwner and tooltipOwner ~= self._activeTooltipOwner then
+        return
+    end
+
+    self._activeTooltipOwner = nil
     GameTooltip:Hide()
 end
 
