@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.0.4
+
+- Fix percent based progress tracking
+
 ## v2.0.3
 
 - Fix quest tracking progress

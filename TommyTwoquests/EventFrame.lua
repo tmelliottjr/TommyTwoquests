@@ -70,6 +70,11 @@ local function BuildObjectiveProgressSignature()
     return ""
   end
 
+  local function NormalizeSigToken(value)
+    if value == nil then return "" end
+    return tostring(value):gsub("[|;,:]", "_")
+  end
+
   local signature = ""
   local trackedQuestIDs = BuildTrackedQuestIDList()
   for _, questID in ipairs(trackedQuestIDs) do
@@ -84,7 +89,10 @@ local function BuildObjectiveProgressSignature()
           local finished = obj.finished and 1 or 0
           local fulfilled = obj.numFulfilled or 0
           local required = obj.numRequired or 0
+          local objectiveType = NormalizeSigToken(obj.type)
+          local objectiveText = NormalizeSigToken(obj.text)
           signature = signature .. ";" .. i .. "," .. finished .. "," .. fulfilled .. "," .. required
+              .. "," .. objectiveType .. "," .. objectiveText
         end
       end
     else
