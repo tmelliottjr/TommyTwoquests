@@ -12,6 +12,45 @@ local activeHeaders = {}
 local activeGroupContainers = {}
 TTQ._activeGroupContainers = activeGroupContainers
 
+----------------------------------------------------------------------
+-- In-combat objective visual refresh
+-- Updates existing visible objective rows only (no frame rebuild).
+----------------------------------------------------------------------
+function TTQ:RefreshObjectiveProgressInCombat()
+    if not activeQuestItems or #activeQuestItems == 0 then
+        return false
+    end
+    if not (C_QuestLog and C_QuestLog.GetQuestObjectives) then
+        return false
+    end
+
+    local showNums = self:GetSetting("showObjectiveNumbers")
+    local updated = false
+
+    for _, questItem in ipairs(activeQuestItems) do
+        local quest = questItem and questItem.questData
+        local questID = quest and quest.questID
+        local objectiveItems = questItem and questItem.objectiveItems
+
+        if type(questID) == "number" and questID > 0 and objectiveItems and #objectiveItems > 0 then
+            local objectives = C_QuestLog.GetQuestObjectives(questID)
+            if objectives and #objectives > 0 then
+                local maxCount = math.min(#objectives, #objectiveItems)
+                for i = 1, maxCount do
+                    local objData = objectives[i]
+                    local objItem = objectiveItems[i]
+                    if objData and objItem then
+                        self:UpdateObjectiveItem(objItem, objData, showNums)
+                        updated = true
+                    end
+                end
+            end
+        end
+    end
+
+    return updated
+end
+
 local SECTION_HEADER_HEIGHT = 22
 local SECTION_GROUP_SPACING = 4
 
@@ -1001,25 +1040,28 @@ function TTQ:GetScenarioInfo()
             for i = 1, numCriteria do
                 local criteriaInfo = C_ScenarioInfo and C_ScenarioInfo.GetCriteriaInfo
                     and C_ScenarioInfo.GetCriteriaInfo(i)
-                if criteriaInfo then
-                    result.stages[#result.stages + 1] = {
-                        description = criteriaInfo.description or "",
-                        completed = criteriaInfo.completed or false,
-                        quantity = criteriaInfo.quantity or 0,
-                        totalQuantity = criteriaInfo.totalQuantity or 0,
-                    }
-                else
-                    -- Fallback: try legacy GetCriteriaInfo
-                    local desc, _, completed, qty, totalQty =
-                        C_Scenario.GetCriteriaInfo(i)
-                    if desc then
-                        result.stages[#result.stages + 1] = {
-                            description = desc,
-                            completed = completed or false,
-                            quantity = qty or 0,
-                            totalQuantity = totalQty or 0,
-                        }
+                local legacyDesc, _, legacyCompleted, legacyQty, legacyTotalQty
+                if C_Scenario.GetCriteriaInfo then
+                    legacyDesc, _, legacyCompleted, legacyQty, legacyTotalQty = C_Scenario.GetCriteriaInfo(i)
+                end
+
+                if criteriaInfo or legacyDesc then
+                    local description = ""
+                    if criteriaInfo then
+                        description = criteriaInfo.description
+                            or criteriaInfo.quantityString
+                            or ""
                     end
+                    if (not description or description == "") and legacyDesc and legacyDesc ~= "" then
+                        description = legacyDesc
+                    end
+
+                    result.stages[#result.stages + 1] = {
+                        description = description,
+                        completed = (criteriaInfo and criteriaInfo.completed) or legacyCompleted or false,
+                        quantity = (criteriaInfo and criteriaInfo.quantity) or legacyQty or 0,
+                        totalQuantity = (criteriaInfo and criteriaInfo.totalQuantity) or legacyTotalQty or 0,
+                    }
                 end
             end
         end

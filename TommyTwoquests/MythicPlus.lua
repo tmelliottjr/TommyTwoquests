@@ -283,13 +283,42 @@ function TTQ:GetMythicPlusData()
         criteriaInfo = C_ScenarioInfo.GetCriteriaInfo(i)
       end
 
-      if criteriaInfo then
-        local desc = criteriaInfo.description or ""
-        local completed = criteriaInfo.completed or false
-        local qty = criteriaInfo.quantity or 0
-        local totalQty = criteriaInfo.totalQuantity or 0
-        local isWeightedProgress = criteriaInfo.isWeightedProgress
-        local isForcesCriteria = criteriaInfo.isForcesCriteria
+      local legacyDesc, _, legacyCompleted, legacyQty, legacyTotalQty
+      if C_Scenario.GetCriteriaInfo then
+        legacyDesc, _, legacyCompleted, legacyQty, legacyTotalQty = C_Scenario.GetCriteriaInfo(i)
+      end
+
+      if criteriaInfo or legacyDesc then
+        local desc = ""
+        local completed = false
+        local qty = 0
+        local totalQty = 0
+        local isWeightedProgress = false
+        local isForcesCriteria = false
+
+        if criteriaInfo then
+          desc = criteriaInfo.description
+              or criteriaInfo.quantityString
+              or ""
+          completed = criteriaInfo.completed or false
+          qty = criteriaInfo.quantity or 0
+          totalQty = criteriaInfo.totalQuantity or 0
+          isWeightedProgress = criteriaInfo.isWeightedProgress
+          isForcesCriteria = criteriaInfo.isForcesCriteria
+        end
+
+        if (not desc or desc == "") and legacyDesc and legacyDesc ~= "" then
+          desc = legacyDesc
+        end
+        if not completed and legacyCompleted ~= nil then
+          completed = legacyCompleted
+        end
+        if qty == 0 and legacyQty and legacyQty > 0 then
+          qty = legacyQty
+        end
+        if totalQty == 0 and legacyTotalQty and legacyTotalQty > 0 then
+          totalQty = legacyTotalQty
+        end
 
         -- Enemy forces detection:
         -- 1. isWeightedProgress (primary flag for enemy forces in M+)
@@ -327,31 +356,6 @@ function TTQ:GetMythicPlusData()
           }
           if completed then
             data.bossesKilled = data.bossesKilled + 1
-          end
-        end
-      else
-        -- Legacy fallback
-        local desc, _, completed, qty, totalQty
-        if C_Scenario.GetCriteriaInfo then
-          desc, _, completed, qty, totalQty = C_Scenario.GetCriteriaInfo(i)
-        end
-        if desc then
-          local isEF = (desc and desc:lower():find("forces"))
-              or (totalQty and totalQty > 100 and i == numCriteria)
-          if isEF then
-            data.enemyForces = qty or 0
-            data.enemyTotal = totalQty or 0
-            data.enemyPct = (totalQty and totalQty > 0)
-                and math.min(((qty or 0) / totalQty) * 100, 100) or 0
-            data.enemyComplete = completed or ((qty or 0) >= (totalQty or 0))
-          else
-            data.bosses[#data.bosses + 1] = {
-              name = desc,
-              completed = completed or false,
-            }
-            if completed then
-              data.bossesKilled = data.bossesKilled + 1
-            end
           end
         end
       end

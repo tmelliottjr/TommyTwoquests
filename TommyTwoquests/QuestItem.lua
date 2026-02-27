@@ -782,6 +782,7 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
             local descObj = {
                 text = truncated,
                 finished = false,
+                isDescription = true,
             }
             self:UpdateObjectiveItem(objItem, descObj, false)
             -- Style as italic to distinguish from real objectives

@@ -374,9 +374,12 @@ function TTQ:SafeRefreshTracker()
         self._refreshTimer = nil
     end
 
-    -- Defer the entire refresh while in combat to avoid
-    -- ADDON_ACTION_BLOCKED on protected frame operations (SetHeight, etc.).
+    -- During combat, do a lightweight objective visual refresh only,
+    -- then defer the full rebuild until PLAYER_REGEN_ENABLED.
     if InCombatLockdown() then
+        if self.RefreshObjectiveProgressInCombat then
+            self:RefreshObjectiveProgressInCombat()
+        end
         self:_DeferRefreshAfterCombat()
         return
     end

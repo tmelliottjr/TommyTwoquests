@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.0.5
+
+- Add sleek objective progress bars for percentage-based quest objectives (world quests, bonus objectives, and any quest objective that reports percent progress)
+- Fix a pooled-row artifact where non-percent objectives could show a tiny progress-fill sliver
+- Objective progress visuals now update during combat (full tracker rebuild still safely deferred until combat ends)
+- Improve objective percent detection so progress bars remain visible more consistently across API/text variations
+- Tweak objective progress bar style to be taller and shorter
+- Fix objective progress bars not rendering by using stable anchors and API ratio data when available
+
 ## v2.0.4
 
 - Fix percent based progress tracking
