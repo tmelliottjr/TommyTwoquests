@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.0.8
+- TAINTS EVERYWHERE
+
 ## v2.0.7
 - Fix a taint error ("attempt to perform arithmetic on a secret number value") that occurred when hovering over world quest POIs on the map
 

@@ -329,15 +329,6 @@ function TTQ:CreateTrackerFrame()
     settingsBtn:SetScript("OnClick", function()
         TTQ:OpenSettings()
     end)
-    settingsBtn:SetScript("OnEnter", function(btn)
-        GameTooltip:SetOwner(btn, "ANCHOR_LEFT")
-        GameTooltip:SetText("Settings")
-        GameTooltip:AddLine("Open TommyTwoquests options.", 0.8, 0.8, 0.8)
-        GameTooltip:Show()
-    end)
-    settingsBtn:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
     self.SettingsBtn = settingsBtn
 
     -- Filter dropdown button
@@ -368,15 +359,6 @@ function TTQ:CreateTrackerFrame()
     filterBtn:SetScript("OnClick", function(btn)
         TTQ:ShowFilterDropdown(btn)
     end)
-    filterBtn:SetScript("OnEnter", function(btn)
-        GameTooltip:SetOwner(btn, "ANCHOR_LEFT")
-        GameTooltip:SetText("Quest Filters")
-        GameTooltip:AddLine("Click to toggle quest type filters.", 0.8, 0.8, 0.8)
-        GameTooltip:Show()
-    end)
-    filterBtn:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
     self.FilterBtn = filterBtn
 
     -- Abandon All button (skull icon) -- hidden by default, controlled by setting
@@ -399,16 +381,6 @@ function TTQ:CreateTrackerFrame()
 
     abandonBtn:SetScript("OnClick", function()
         TTQ:ShowAbandonAllConfirmation()
-    end)
-    abandonBtn:SetScript("OnEnter", function(btn)
-        GameTooltip:SetOwner(btn, "ANCHOR_LEFT")
-        GameTooltip:SetText("Abandon All Quests", 1, 0.3, 0.3)
-        GameTooltip:AddLine("Click to abandon ALL tracked quests.", 0.8, 0.8, 0.8)
-        GameTooltip:AddLine("This action cannot be undone!", 1, 0.4, 0.4)
-        GameTooltip:Show()
-    end)
-    abandonBtn:SetScript("OnLeave", function()
-        GameTooltip:Hide()
     end)
     self.AbandonBtn = abandonBtn
     self:UpdateAbandonButtonVisibility()
@@ -1238,21 +1210,6 @@ function TTQ:RefreshTracker()
             TTQ:SafeRefreshTracker()
         end)
 
-        header.frame:SetScript("OnEnter", function(btn)
-            if TTQ:BeginTooltip(btn) then
-                GameTooltip:SetText(scenarioInfo.name, 1, 1, 1)
-                if scenarioInfo.stageName and scenarioInfo.stageName ~= "" then
-                    GameTooltip:AddLine(scenarioInfo.stageName, 0.8, 0.8, 0.8)
-                end
-                if scenarioInfo.stageDesc and scenarioInfo.stageDesc ~= "" then
-                    GameTooltip:AddLine(scenarioInfo.stageDesc, 0.6, 0.6, 0.6, true)
-                end
-                GameTooltip:AddLine(isScenarioCollapsed and "Click to expand" or "Click to collapse", 0.7, 0.7, 0.7)
-                TTQ:EndTooltip()
-            end
-        end)
-        header.frame:SetScript("OnLeave", function(self) TTQ:HideTooltip(self) end)
-
         table.insert(activeHeaders, header)
         local groupContentHeight = SECTION_HEADER_HEIGHT + 2
 
@@ -1389,15 +1346,6 @@ function TTQ:RefreshTracker()
             TTQ:ToggleCollapse("collapsedGroups", questType)
             TTQ:SafeRefreshTracker()
         end)
-
-        header.frame:SetScript("OnEnter", function(btn)
-            if TTQ:BeginTooltip(btn) then
-                GameTooltip:SetText(group.headerName)
-                GameTooltip:AddLine(isGroupCollapsed and "Click to expand" or "Click to collapse", 0.7, 0.7, 0.7)
-                TTQ:EndTooltip()
-            end
-        end)
-        header.frame:SetScript("OnLeave", function(self) TTQ:HideTooltip(self) end)
 
         table.insert(activeHeaders, header)
         local groupContentHeight = SECTION_HEADER_HEIGHT + 2
@@ -1746,14 +1694,6 @@ function TTQ:CreateFilterDropdownFrame()
         TTQ:SafeRefreshTracker()
     end)
 
-    zoneRow:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText("Hide Others", 1, 1, 1)
-        GameTooltip:AddLine("Only show quests that are in your current zone.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    zoneRow:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
     frame.zoneRow = zoneRow
     y = y - dd.RowHeight
 
@@ -1796,15 +1736,6 @@ function TTQ:CreateFilterDropdownFrame()
         TTQ:RefreshFilterDropdown()
         TTQ:SafeRefreshTracker()
     end)
-
-    groupZoneRow:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText("Show on Top", 1, 1, 1)
-        GameTooltip:AddLine("Pull quests from your current zone into their own group at the top of the tracker.", 0.8,
-            0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    groupZoneRow:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     frame.groupZoneRow = groupZoneRow
     y = y - dd.RowHeight - 6

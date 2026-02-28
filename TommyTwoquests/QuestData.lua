@@ -451,16 +451,26 @@ end
 -- also touches SetSelectedQuest).
 ----------------------------------------------------------------------
 function TTQ:EnrichQuestItems(quests)
-    if not GetQuestLogSpecialItemInfo then return end
+    local GetSpecialItemInfo =
+        (C_QuestLog and C_QuestLog.GetQuestLogSpecialItemInfo)
+        or GetQuestLogSpecialItemInfo
+    if not GetSpecialItemInfo then return end
+
     for _, quest in ipairs(quests) do
-        local link, tex = GetQuestLogSpecialItemInfo(quest.questLogIndex)
-        if link and tex then
-            quest.hasQuestItem     = true
-            quest.questItemLink    = link
-            quest.questItemTexture = tex
-            -- Extract numeric item ID from the link for cooldown lookups
-            local itemID           = link:match("item:(%d+)")
-            quest.questItemID      = itemID and tonumber(itemID) or nil
+        local questLogIndex = quest.questLogIndex
+        if questLogIndex and questLogIndex > 0 then
+            local link, tex = GetSpecialItemInfo(questLogIndex)
+            if tex then
+                quest.hasQuestItem     = true
+                quest.questItemLink    = link
+                quest.questItemTexture = tex
+                if link then
+                    local itemID      = link:match("item:(%d+)")
+                    quest.questItemID = itemID and tonumber(itemID) or nil
+                else
+                    quest.questItemID = nil
+                end
+            end
         end
     end
 end

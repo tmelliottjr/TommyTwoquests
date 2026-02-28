@@ -190,20 +190,6 @@ function TTQ:CreateQuestItem(parent)
     end
     itemBtn.cooldown = itemCooldown
 
-    -- Tooltip: show the item tooltip on hover
-    itemBtn:SetScript("OnEnter", function(self)
-        if self._itemLink then
-            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-            GameTooltip:SetHyperlink(self._itemLink)
-            GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("Click to use", 0.5, 0.8, 1)
-            GameTooltip:Show()
-        end
-    end)
-    itemBtn:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
-
     itemBtn:Hide()
     item.itemBtn = itemBtn
 
@@ -235,15 +221,6 @@ function TTQ:CreateQuestItem(parent)
     gfHl:SetAllPoints(gfIcon)
     gfHl:SetColorTexture(1, 1, 1, 0.18)
 
-    groupFinderBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText("Find a Group", 1, 1, 1)
-        GameTooltip:AddLine("Click to search for a group for this quest.", 0.5, 0.8, 1)
-        GameTooltip:Show()
-    end)
-    groupFinderBtn:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
     groupFinderBtn:SetScript("OnClick", function(self)
         local qID = self._questID
         if not qID then return end
@@ -276,7 +253,6 @@ function TTQ:CreateQuestItem(parent)
         local questData = item.questData
         if not questData then return end
         local questID = questData.questID
-        local canOpenMap = questData.questType ~= "bonusobjective"
 
         if button == "LeftButton" then
             if IsShiftKeyDown() then
@@ -285,17 +261,9 @@ function TTQ:CreateQuestItem(parent)
                 TTQ:SetQuestCollapsed(questID, not isCollapsed)
                 TTQ:SafeRefreshTracker()
             else
-                -- Kaliel-style behavior: complete auto-complete quests directly.
-                if questData.isAutoComplete and questData.isComplete and ShowQuestComplete then
-                    ShowQuestComplete(questID)
-                    TTQ:SafeRefreshTracker()
-                    return
-                end
-
-                -- Click: focus the quest and open it on the map
-                C_SuperTrack.SetSuperTrackedQuestID(questID)
-                if canOpenMap and QuestMapFrame_OpenToQuestDetails then
-                    QuestMapFrame_OpenToQuestDetails(questID)
+                -- Click: focus quest + open map details when safe
+                if not TTQ:OpenQuestOnMap(questID) and C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then
+                    C_SuperTrack.SetSuperTrackedQuestID(questID)
                 end
                 TTQ:SafeRefreshTracker()
             end
@@ -334,48 +302,9 @@ function TTQ:CreateQuestItem(parent)
             item.name:SetTextColor(nr, ng, nb)
             if raw >= 1 then f:SetScript("OnUpdate", nil) end
         end)
-        -- Tooltip (gated by showTrackerTooltips via helper)
-        if TTQ:BeginTooltip(self) then
-            GameTooltip:SetText(questData.title, 1, 1, 1)
-            if questData.isTask then
-                GameTooltip:AddLine("World Quest", 0.4, 0.8, 1.0)
-            end
-            if questData.objectives then
-                for _, obj in ipairs(questData.objectives) do
-                    if obj.text then
-                        local r, g, b = 0.85, 0.85, 0.85
-                        if obj.finished then r, g, b = 0.5, 0.5, 0.5 end
-                        GameTooltip:AddLine(obj.text, r, g, b)
-                    end
-                end
-            end
-            if questData.timeLeftMinutes and questData.timeLeftMinutes > 0 then
-                local hours = math.floor(questData.timeLeftMinutes / 60)
-                local mins = questData.timeLeftMinutes % 60
-                local timeStr
-                if hours > 0 then
-                    timeStr = string.format("%dh %dm remaining", hours, mins)
-                else
-                    timeStr = string.format("%dm remaining", mins)
-                end
-                GameTooltip:AddLine(timeStr, 1, 0.82, 0)
-            end
-            GameTooltip:AddLine(" ")
-            if questData.isAutoComplete and questData.isComplete then
-                GameTooltip:AddLine("Click: Complete quest", 0.5, 0.8, 1)
-            elseif questData.questType == "bonusobjective" then
-                GameTooltip:AddLine("Click: Focus quest", 0.5, 0.8, 1)
-            else
-                GameTooltip:AddLine("Click: Focus & show on map", 0.5, 0.8, 1)
-            end
-            GameTooltip:AddLine("Shift-click: Expand/Collapse", 0.5, 0.8, 1)
-            GameTooltip:AddLine("Right-click: Menu", 0.5, 0.8, 1)
-            TTQ:EndTooltip()
-        end
     end)
 
     frame:SetScript("OnLeave", function(self)
-        TTQ:HideTooltip(self)
         -- Only clear hovered quest if the frame is still visible (not being released to pool)
         if self:IsVisible() then
             TTQ._hoveredQuestID = nil
@@ -534,13 +463,18 @@ function TTQ:UpdateQuestItem(item, quest, parentWidth)
 
     -- Quest item-use button
     if item.itemBtn then
-        if quest.hasQuestItem and quest.questItemTexture and not InCombatLockdown() then
+        if quest.questItemTexture and not InCombatLockdown() then
             local btn = item.itemBtn
             btn.icon:SetTexture(quest.questItemTexture)
             btn._itemLink = quest.questItemLink
             -- Configure secure action: use the quest item by item link
-            btn:SetAttribute("type", "item")
-            btn:SetAttribute("item", quest.questItemLink)
+            if quest.questItemLink then
+                btn:SetAttribute("type", "item")
+                btn:SetAttribute("item", quest.questItemLink)
+            else
+                btn:SetAttribute("type", nil)
+                btn:SetAttribute("item", nil)
+            end
 
             local position = TTQ:GetSetting("questItemPosition") or "right"
             btn:ClearAllPoints()
@@ -881,9 +815,8 @@ function TTQ:ShowQuestContextMenu(item)
                 disabled = mapDisabled,
                 onClick = function()
                     if mapDisabled then return end
-                    if QuestMapFrame_OpenToQuestDetails then
-                        QuestMapFrame_OpenToQuestDetails(questID)
-                    end
+                    TTQ:OpenQuestOnMap(questID)
+                    self:SafeRefreshTracker()
                 end,
             },
             {

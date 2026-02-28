@@ -2,13 +2,13 @@
 -- TommyTwoquests -- ContextMenu.lua
 -- Generic reusable context menu: backdrop, buttons, cursor positioning
 ----------------------------------------------------------------------
-local AddonName, TTQ                     = ...
-local CreateFrame, UIParent, GameTooltip = CreateFrame, UIParent, GameTooltip
-local GetCursorPosition, math            = GetCursorPosition, math
+local AddonName, TTQ          = ...
+local CreateFrame, UIParent   = CreateFrame, UIParent
+local GetCursorPosition, math = GetCursorPosition, math
 
-local MENU_ROW                           = 22
-local MENU_PAD                           = 6
-local MENU_WIDTH                         = 200
+local MENU_ROW                = 22
+local MENU_PAD                = 6
+local MENU_WIDTH              = 200
 
 ----------------------------------------------------------------------
 -- Create a reusable context menu with dynamic button support
@@ -96,14 +96,6 @@ function TTQ:CreateContextMenu(globalName)
       if btn._onClick then btn._onClick() end
       menu:Hide()
     end)
-    btn:SetScript("OnEnter", function(self)
-      if btn._tooltip then
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText(btn._tooltip, 0.9, 0.9, 0.9)
-        GameTooltip:Show()
-      end
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     buttons[index] = btn
     return btn
   end

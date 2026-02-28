@@ -5,8 +5,8 @@
 local AddonName, TTQ = ...
 local table, ipairs, pairs, pcall, math, string, wipe, type =
     table, ipairs, pairs, pcall, math, string, wipe, type
-local CreateFrame, UIParent, C_Timer, GetTime, GameTooltip =
-    CreateFrame, UIParent, C_Timer, GetTime, GameTooltip
+local CreateFrame, UIParent, C_Timer, GetTime =
+    CreateFrame, UIParent, C_Timer, GetTime
 local C_TradeSkillUI = C_TradeSkillUI
 local GetItemCount = GetItemCount
 local C_Item = C_Item
@@ -113,38 +113,6 @@ function TTQ:CreateRecipeItem(parent)
     end
   end)
 
-  -- Hover: tooltip (gated via helper)
-  frame:SetScript("OnEnter", function(self)
-    local recipeData = item.recipeData
-    if not recipeData then return end
-    if TTQ:BeginTooltip(self) then
-      GameTooltip:SetText(recipeData.name, 1, 1, 1)
-      if recipeData.professionName and recipeData.professionName ~= "" then
-        GameTooltip:AddLine(recipeData.professionName, 0.6, 0.6, 0.8)
-      end
-      -- Show reagent summary
-      if recipeData.reagents and #recipeData.reagents > 0 then
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("Reagents:", 0.8, 0.8, 0.8)
-        for _, reagent in ipairs(recipeData.reagents) do
-          local r, g, b = 0.85, 0.85, 0.85
-          if reagent.have >= reagent.needed then
-            r, g, b = 0.2, 0.8, 0.4
-          end
-          GameTooltip:AddLine(
-            string.format("  %s (%d/%d)", reagent.name, reagent.have, reagent.needed),
-            r, g, b
-          )
-        end
-      end
-      GameTooltip:AddLine(" ")
-      GameTooltip:AddLine("Click: Collapse/Expand", 0.5, 0.8, 1)
-      GameTooltip:AddLine("Right-click: Menu", 0.5, 0.8, 1)
-      TTQ:EndTooltip()
-    end
-  end)
-  frame:SetScript("OnLeave", function(self) TTQ:HideTooltip(self) end)
-
   return item
 end
 
@@ -194,23 +162,6 @@ function TTQ:CreateReagentItem(parent)
   text:SetNonSpaceWrap(false)
   text:SetMaxLines(1)
   item.text = text
-
-  -- Tooltip for reagent (gated via helper)
-  frame:SetScript("OnEnter", function(self)
-    if not item.reagentData then return end
-    if TTQ:BeginTooltip(self) then
-      GameTooltip:SetText(item.reagentData.name, 1, 1, 1)
-      GameTooltip:AddLine(
-        string.format("Have: %d / Need: %d", item.reagentData.have, item.reagentData.needed),
-        0.8, 0.8, 0.8
-      )
-      if TTQ:IsAuctionatorAvailable() then
-        GameTooltip:AddLine("Click: Search Auction House", 0.5, 0.8, 1)
-      end
-      TTQ:EndTooltip()
-    end
-  end)
-  frame:SetScript("OnLeave", function(self) TTQ:HideTooltip(self) end)
 
   return item
 end
@@ -792,19 +743,6 @@ function TTQ:RenderRecipeBlock(parentFrame, width, yOffset)
     TTQ:ToggleCollapse("collapsedGroups", "_recipes")
     TTQ:SafeRefreshTracker()
   end)
-
-  hf:SetScript("OnEnter", function(btn)
-    if TTQ:BeginTooltip(btn) then
-      GameTooltip:SetText("Tracked Recipes")
-      local ahStatus = TTQ:IsAuctionatorAvailable()
-          and "|cff00cc00Auctionator detected|r"
-          or "|cffff6666Auctionator not detected|r"
-      GameTooltip:AddLine(ahStatus, 1, 1, 1)
-      GameTooltip:AddLine(isRecipeSectionCollapsed and "Click to expand" or "Click to collapse", 0.7, 0.7, 0.7)
-      TTQ:EndTooltip()
-    end
-  end)
-  hf:SetScript("OnLeave", function(self) TTQ:HideTooltip(self) end)
 
   local totalHeight = SECTION_HEADER_HEIGHT + 2
 

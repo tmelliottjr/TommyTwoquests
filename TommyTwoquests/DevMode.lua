@@ -840,14 +840,9 @@ local function CreateDevPanel()
     end
     btn:SetScript("OnEnter", function(self)
       self:SetBackdropColor(S.BtnHover[1], S.BtnHover[2], S.BtnHover[3], S.BtnHover[4])
-      GameTooltip:SetOwner(self, "ANCHOR_TOP")
-      GameTooltip:SetText(p[1], S.Value[1], S.Value[2], S.Value[3])
-      GameTooltip:AddLine(p[3], 0.8, 0.8, 0.8)
-      GameTooltip:Show()
     end)
     btn:SetScript("OnLeave", function(self)
       self:SetBackdropColor(S.BtnBg[1], S.BtnBg[2], S.BtnBg[3], S.BtnBg[4])
-      GameTooltip:Hide()
     end)
     pPrevBtn = btn
   end

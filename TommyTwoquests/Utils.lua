@@ -86,7 +86,7 @@ TTQ.QuestIcons = {
 -- Turnin/active/complete variants (when quest is tracked or complete)
 TTQ.QuestIconsTurnin = {
     campaign       = "quest-campaign-available", -- same style
-    important      = "quest-important-turnin",  -- Active Important (yellow-gold chevron)
+    important      = "quest-important-turnin",   -- Active Important (yellow-gold chevron)
     legendary      = "quest-legendary-turnin",
     worldquest     = "worldquest-tracker-questmarker",
     pvpworldquest  = "questlog-questtypeicon-pvp",
@@ -295,41 +295,62 @@ function TTQ:DeepMerge(dst, src)
 end
 
 ----------------------------------------------------------------------
--- Tracker tooltip helpers -- centralises the showTrackerTooltips guard.
--- Use for quest items, section headers, recipes, reagents -- anything
--- inside the tracker content area.  Header-bar buttons (gear, filter,
--- abandon, collapse) should call GameTooltip directly so they always
--- show tooltips regardless of this setting.
---
--- Usage:
---   if TTQ:BeginTooltip(owner) then
---       GameTooltip:SetText(...)
---       GameTooltip:AddLine(...)
---       TTQ:EndTooltip()
---   end
+-- Tracker tooltip helpers.
+-- Tooltips are globally disabled to avoid any tooltip-driven taint paths.
 ----------------------------------------------------------------------
 function TTQ:BeginTooltip(owner, anchor)
-    if not owner then return false end
-    if not self:GetSetting("showTrackerTooltips") then return false end
-    self._activeTooltipOwner = owner
-    GameTooltip:SetOwner(owner, anchor or "ANCHOR_LEFT")
-    return true
+    self._activeTooltipOwner = nil
+    return false
 end
 
 function TTQ:EndTooltip()
-    GameTooltip:Show()
+    if GameTooltip then
+        GameTooltip:Hide()
+    end
 end
 
 function TTQ:HideTooltip(owner)
-    local tooltipOwner = GameTooltip:GetOwner()
-    if owner then
-        if tooltipOwner ~= owner then return end
-    elseif self._activeTooltipOwner and tooltipOwner ~= self._activeTooltipOwner then
-        return
+    self._activeTooltipOwner = nil
+    if GameTooltip then
+        GameTooltip:Hide()
+    end
+end
+
+----------------------------------------------------------------------
+-- Safe quest map opener.
+-- Opens quest details on the world map when possible, but defers while
+-- in combat to avoid protected-call blocks from Blizzard map internals.
+----------------------------------------------------------------------
+function TTQ:OpenQuestOnMap(questID)
+    if not questID then return false end
+
+    if InCombatLockdown and InCombatLockdown() then
+        self._pendingQuestMapOpenID = questID
+        if not self._pendingQuestMapOpenQueued and self.QueueEvent then
+            self._pendingQuestMapOpenQueued = true
+            self:QueueEvent("PLAYER_REGEN_ENABLED", function(evt)
+                if evt ~= "PLAYER_REGEN_ENABLED" then return end
+                local pendingQuestID = TTQ._pendingQuestMapOpenID
+                TTQ._pendingQuestMapOpenID = nil
+                TTQ._pendingQuestMapOpenQueued = nil
+                if pendingQuestID then
+                    TTQ:OpenQuestOnMap(pendingQuestID)
+                end
+            end)
+        end
+        return false
     end
 
-    self._activeTooltipOwner = nil
-    GameTooltip:Hide()
+    if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then
+        C_SuperTrack.SetSuperTrackedQuestID(questID)
+    end
+
+    if QuestMapFrame_OpenToQuestDetails then
+        local ok = pcall(QuestMapFrame_OpenToQuestDetails, questID)
+        return ok and true or false
+    end
+
+    return false
 end
 
 ----------------------------------------------------------------------

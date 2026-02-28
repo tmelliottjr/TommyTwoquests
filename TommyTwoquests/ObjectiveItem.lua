@@ -4,6 +4,7 @@
 ----------------------------------------------------------------------
 local AddonName, TTQ = ...
 local table, string, math, pcall, CreateFrame = table, string, math, pcall, CreateFrame
+local C_SuperTrack = C_SuperTrack
 
 local ROW_HEIGHT = 16
 local ROW_HEIGHT_WITH_BAR = 30
@@ -100,10 +101,11 @@ function TTQ:CreateObjectiveItem(parent)
     frame:RegisterForClicks("LeftButtonUp")
     item.frame = frame
 
-    -- Click: open quest in map/log
+    -- Click: focus quest and open map details when safe
     frame:SetScript("OnClick", function()
-        if item.canOpenMap ~= false and item.questID and QuestMapFrame_OpenToQuestDetails then
-            QuestMapFrame_OpenToQuestDetails(item.questID)
+        if item.questID then
+            TTQ:OpenQuestOnMap(item.questID)
+            TTQ:SafeRefreshTracker()
         end
     end)
 

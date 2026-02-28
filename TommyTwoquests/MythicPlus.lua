@@ -20,7 +20,6 @@ local UnitName, UnitExists, UnitIsDeadOrGhost                                   
 local UnitInParty, UnitHealth                                                         = UnitInParty, UnitHealth
 local UnitIsFeignDeath                                                                = UnitIsFeignDeath
 local GetInstanceInfo                                                                 = GetInstanceInfo
-local GameTooltip                                                                     = GameTooltip
 local bit, CursorHasItem, C_Container, C_Item                                         = bit, CursorHasItem,
     C_Container, C_Item
 local COMBATLOG_OBJECT_TYPE_PLAYER                                                    = COMBATLOG_OBJECT_TYPE_PLAYER
@@ -648,84 +647,7 @@ local function CreateMPDisplay(parent, width)
   local deathHitbox = CreateFrame("Frame", nil, deathRow)
   deathHitbox:SetAllPoints(deathRow)
   deathHitbox:SetFrameLevel(deathRow:GetFrameLevel() + 10)
-  deathHitbox:EnableMouse(true)
-  deathHitbox:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(deathRow, "ANCHOR_BOTTOMLEFT")
-    GameTooltip:SetText("Death Log", 0.90, 0.30, 0.30)
-    -- Get authoritative death count and time penalty from API
-    local apiDeaths, apiTimePenalty = 0, 0
-    if C_ChallengeMode and C_ChallengeMode.GetDeathCount then
-      apiDeaths, apiTimePenalty = C_ChallengeMode.GetDeathCount()
-      apiDeaths = apiDeaths or 0
-      apiTimePenalty = apiTimePenalty or 0
-    end
-    local totalDeaths = math.max(apiDeaths, #mpState.deathLog)
-    -- Derive per-death penalty from the API when possible,
-    -- otherwise fall back to key-level-based calculation.
-    local perDeathPenalty
-    if apiDeaths > 0 and apiTimePenalty > 0 then
-      perDeathPenalty = apiTimePenalty / apiDeaths
-    else
-      local curData = TTQ:GetMythicPlusData()
-      perDeathPenalty = GetDeathPenaltyPer(curData and curData.keystoneLevel)
-    end
-    if #mpState.deathLog > 0 then
-      -- Aggregate deaths per player: { name, class, count }
-      local byPlayer = {} -- name -> { class, count }
-      local order = {}    -- insertion-order of names
-      for _, entry in ipairs(mpState.deathLog) do
-        if not byPlayer[entry.name] then
-          byPlayer[entry.name] = { class = entry.class, count = 0 }
-          order[#order + 1] = entry.name
-        end
-        byPlayer[entry.name].count = byPlayer[entry.name].count + 1
-        -- Upgrade class if a later entry has it
-        if entry.class and not byPlayer[entry.name].class then
-          byPlayer[entry.name].class = entry.class
-        end
-      end
-      for _, pName in ipairs(order) do
-        local info = byPlayer[pName]
-        local cr, cg, cb = 0.85, 0.85, 0.85
-        if info.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[info.class] then
-          local cc = RAID_CLASS_COLORS[info.class]
-          cr, cg, cb = cc.r, cc.g, cc.b
-        end
-        local penalty = info.count * perDeathPenalty
-        local line = pName .. "  x" .. info.count .. "  |cff888888(+" .. penalty .. "s)|r"
-        GameTooltip:AddLine(line, cr, cg, cb)
-      end
-      -- Show untracked deaths if API reports more than we identified
-      local untracked = totalDeaths - #mpState.deathLog
-      if untracked > 0 then
-        local penalty = untracked * perDeathPenalty
-        GameTooltip:AddLine("|cff666666Untracked|r  x" .. untracked .. "  |cff888888(+" .. penalty .. "s)|r", 0.4, 0.4,
-          0.4)
-      end
-      -- Total summary -- use API penalty if available, otherwise calculate
-      local totalPenalty = (apiTimePenalty > 0) and apiTimePenalty or (totalDeaths * perDeathPenalty)
-      GameTooltip:AddLine(" ")
-      GameTooltip:AddLine(
-        totalDeaths ..
-        " total " ..
-        (totalDeaths == 1 and "death" or "deaths") .. "  |  +" .. FormatTime(totalPenalty) .. " penalty",
-        0.6,
-        0.6, 0.6)
-    else
-      -- Fallback: show count from API even if we missed the details
-      local numDeaths = 0
-      if C_ChallengeMode and C_ChallengeMode.GetDeathCount then
-        numDeaths = C_ChallengeMode.GetDeathCount() or 0
-      end
-      if numDeaths > 0 then
-        GameTooltip:AddLine(numDeaths .. " death(s) -- details not captured", 0.6, 0.6, 0.6)
-      end
-    end
-    GameTooltip:Show()
-  end)
-  deathHitbox:SetScript("OnLeave", function()
-    GameTooltip:Hide()
-  end)
+  deathHitbox:EnableMouse(false)
   el.deathHitbox = deathHitbox
 
   ----------------------------------------------------------------
@@ -960,23 +882,14 @@ function TTQ:UpdateMythicPlusDisplay(el, data, width)
       btn:SetFrameLevel(el.affixRow:GetFrameLevel() + (#data.affixes - idx + 1))
       btn:Show()
 
-      -- Tooltip with affix name + description
-      local affName = aff.name
-      local affDesc = aff.description
+      -- Hover highlight only (tooltips disabled)
       btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-        GameTooltip:SetText(affName, 1, 0.82, 0)
-        if affDesc and affDesc ~= "" then
-          GameTooltip:AddLine(affDesc, 0.85, 0.85, 0.85, true)
-        end
-        GameTooltip:Show()
         -- Highlight border on hover
         if self.border then
           self.border:SetColorTexture(1, 0.78, 0.15, 1)
         end
       end)
       btn:SetScript("OnLeave", function(self)
-        GameTooltip:Hide()
         if self.border then
           self.border:SetColorTexture(0.65, 0.58, 0.30, 0.6)
         end
